@@ -1,0 +1,30 @@
+name: 575_project
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pip
+  - jupyter
+  - ipykernel
+
+  - pip:
+    # Data handling
+    - python-dotenv      # loading .env files
+    - pandas             # data manipulation
+    - numpy              # numerical operations
+
+    # BM25
+    - rank-bm25          # BM25 implementation
+
+    # Semantic search
+    - sentence-transformers  # embedding model
+    - faiss-cpu              # vector index (cpu version is fine for our size)
+
+    # App
+    - streamlit          # web app
+
+    # Utilities
+    - tqdm               # progress bars (helpful when encoding 112K products)
+    

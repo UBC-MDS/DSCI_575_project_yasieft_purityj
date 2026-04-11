@@ -1,0 +1,16 @@
+# Data files
+data/raw/
+data/processed/
+*.jsonl
+*.jsonl.gz
+
+# Environment
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+# Model artifacts (can be large)
+*.pkl
+*.faiss
+*.index
