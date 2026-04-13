@@ -84,8 +84,8 @@ make app
 
 ## Demo
 
-```
-<video src="demo.mp4" controls width="600"></video>
+```html
+![Demo](demo.gif)
 ```
 
 ---
