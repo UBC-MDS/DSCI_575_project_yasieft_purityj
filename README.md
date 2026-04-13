@@ -82,8 +82,6 @@ make all
 make app
 ```
 
-> **Note:** App instructions will be added when the interface is complete.
-
 ---
 
 ## Developers
