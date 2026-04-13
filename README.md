@@ -16,6 +16,7 @@ Example queries:
 - *"CeraVe moisturizer"*
 
 The system uses two complementary retrieval approaches:
+
 - **BM25** — keyword-based search, great for exact terms and brand names
 - **Semantic Search** — meaning-based search, great for descriptive queries
 
@@ -64,8 +65,11 @@ HF_TOKEN=your_huggingface_token_here
 ```bash
 make all
 ```
-> ⚠️ This will take 5-10 minutes on first run.
-> It downloads ~200MB of data and builds search indexes.
+
+> ⚠️ First run takes ~25 minutes total:
+> - Data download: ~5 minutes
+> - BM25 index: ~10 seconds  
+> - Semantic index: ~20 minutes (run once, saved to disk)
 
 ### 5. Launch the app
 
@@ -83,7 +87,35 @@ Follow these steps to reproduce the entire pipeline from scratch.
 
 ### Repository Structure
 
-> To be added
+```
+
+DSCI_575_project_yasieft_purityj/
+│
+├── README.md                        
+├── Makefile                         
+├── environment.yml                  
+├── .env                             # never commit
+│
+├── data/
+│   ├── raw/                         # gitignored
+│   └── processed/                   # gitignored
+│
+├── notebooks/
+│   └── milestone1_exploration.ipynb 
+│
+├── src/
+│   ├── __init__.py
+│   ├── data_loader.py               
+│   ├── utils.py                     
+│   ├── bm25.py                      
+│   └── semantic.py                  
+│
+├── results/
+│   └── milestone1_discussion.md     
+│
+└── app/
+    └── app.py                       
+```
 
 ### Step 1: Environment Setup
 
@@ -100,7 +132,7 @@ Verify installation:
 python -c "import rank_bm25; import sentence_transformers; import faiss; print('All good!')"
 ```
 
-### Step 2: API Keys
+### Step 2: API Keys (optional)
 
 >> reference above
 
@@ -114,17 +146,19 @@ make data
 
 This produces:
 
+```
 data/raw/meta_All_Beauty.jsonl       # 112,590 product records
 data/raw/All_Beauty.jsonl            # 701,528 review records
 data/processed/meta_All_Beauty.parquet
 data/processed/All_Beauty.parquet
+```
 
 ### Step 4: Build Search Indexes
 
 Build both retrieval indexes:
 
 ```bash
-make indexes
+make indexes    # BM25 (~10 seconds) + semantic (~20 minutes, run once)
 ```
 
 Or build individually:
@@ -152,6 +186,7 @@ make app
 
 ### Data Pipeline
 
+```
 HuggingFace (raw data)
 ↓  data_loader.py
 data/raw/.jsonl          (incremental write, never fully in RAM)
@@ -161,6 +196,7 @@ data/processed/.parquet  (columnar format, efficient querying)
 Document corpus           (title + features + description + store + details)
 ↓
 BM25 index    +    FAISS index
+```
 
 ### Document Construction
 
@@ -261,7 +297,7 @@ python src/semantic.py
 | Name | GitHub |
 |---|---|
 | Purity Jangaya | @purityj |
-| Jasmine | @jasmine |
+| Yasi eft | @jasmine |
 
 ---
 

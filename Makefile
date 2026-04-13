@@ -62,7 +62,8 @@ bm25:
 # Warning: this takes 2-3 minutes (encoding 112K documents)
 semantic:
 	@echo "=== Building semantic search index ==="
-	@echo "Warning: this may take 2-3 minutes..."
+	@echo "Warning: encoding 112K documents takes ~20 minutes on CPU"
+	@echo "This only needs to be done once - index is saved to disk"
 	$(PYTHON) src/semantic.py
 	@echo "=== FAISS index saved to data/processed/ ==="
 
