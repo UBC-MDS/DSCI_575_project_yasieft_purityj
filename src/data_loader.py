@@ -165,19 +165,19 @@ def load_reviews_with_duckdb(
 
 
 if __name__ == "__main__":
-    # # Step 1: Download
-    # download_data()
+    # Step 1: Download
+    download_data()
 
-    # # Step 2: Convert to parquet incrementally
-    # convert_to_parquet()
+    # Step 2: Convert to parquet incrementally
+    convert_to_parquet()
 
-    # # Step 3: Quick sanity check with DuckDB
-    # print("\nSanity check - first 3 metadata records:")
-    # df = load_metadata_with_duckdb(
-    #     columns=["parent_asin", "title", "price", "average_rating"],
-    #     limit=3
-    # )
-    # print(df)
+    # Step 3: Quick sanity check with DuckDB
+    print("\nSanity check - first 3 metadata records:")
+    df = load_metadata_with_duckdb(
+        columns=["parent_asin", "title", "price", "average_rating"],
+        limit=3
+    )
+    print(df)
     
     reviews = load_reviews_with_duckdb(columns=["text"])
     print(reviews)
