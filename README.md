@@ -85,7 +85,7 @@ make app
 ## Demo
 
 ```bash
-[Watch demo](./video.mov)
+<video src="demo.mp4" controls width="600"></video>
 ```
 
 ---
