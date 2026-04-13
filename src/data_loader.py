@@ -150,7 +150,7 @@ def load_reviews_with_duckdb(
     limit: max number of rows. None = all rows
     
     Example:
-        df = load_metadata_with_duckdb(columns=["parent_asin", "title", "price"])
+        df = load_reviews_with_duckdb(columns=["parent_asin", "title", "price"])
     """
     col_str = ", ".join(columns) if columns else "*"
     limit_str = f"LIMIT {limit}" if limit else ""
