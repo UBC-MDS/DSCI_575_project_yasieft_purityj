@@ -168,11 +168,13 @@ make bm25       # builds BM25 index (~10 seconds)
 make semantic   # builds FAISS index (~2-7 minutes)
 ```
 
+```
 This produces:
 data/processed/bm25_index.pkl        # fitted BM25 index
 data/processed/corpus_metadata.pkl   # product metadata for display
 data/processed/faiss_index.faiss     # FAISS vector index
 data/processed/embeddings.npy        # raw embeddings (384-dim vectors)
+```
 
 ### Step 5: Launch App
 
