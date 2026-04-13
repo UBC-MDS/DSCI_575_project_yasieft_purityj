@@ -1,0 +1,34 @@
+🚀 Release Notes
+
+This release introduces a Streamlit-powered interactive search application for exploring beauty product reviews using BM25 and Semantic Search techniques.
+
+The system enables users to input a natural language query and choose between:
+
+🔍 BM25 (keyword-based retrieval)
+🧠 Semantic Search (embedding-based retrieval)
+
+Based on the selected mode, the application retrieves the most relevant products from the dataset and displays:
+
+Product details
+Associated review text extracted from the underlying review corpus
+Retrieval score for transparency of ranking relevance
+💡 Key Features
+⚡ Dual search engine support: BM25 + Semantic Search
+🖥️ Interactive Streamlit web interface
+🔎 Query-based product retrieval system
+📄 Automatic fetching of reviews from the dataset
+👍👎 User feedback collection for each result
+💾 Persistent feedback storage in feedback.csv for future analysis
+📊 Overview
+
+This project demonstrates how traditional information retrieval (BM25) and modern embedding-based semantic search can be combined to enhance product discovery in a real-world dataset of beauty product reviews.
+
+📁 Output
+Search results ranked by relevance
+Review snippets for retrieved products
+User feedback logging in feedback.csv
+
+If you want, I can also:
+✔ write a perfect README.md for your repo
+✔ or add badges + demo GIF section + architecture diagram
+✔ or make it look like a top GitHub trending project 🚀
