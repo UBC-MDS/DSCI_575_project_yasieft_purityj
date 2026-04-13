@@ -26,6 +26,7 @@ help:
 	@echo "  make bm25       - build and save BM25 index"
 	@echo "  make semantic   - build and save semantic search (FAISS) index"
 	@echo "  make indexes    - build both BM25 and semantic indexes"
+	@echo "  make app        - run the Streamlit web application"
 	@echo "  make all        - run full pipeline (data + indexes)"
 	@echo "  make clean      - remove processed files and indexes"
 
@@ -62,7 +63,8 @@ bm25:
 # Warning: this takes 2-3 minutes (encoding 112K documents)
 semantic:
 	@echo "=== Building semantic search index ==="
-	@echo "Warning: this may take 2-3 minutes..."
+	@echo "Warning: encoding 112K documents takes ~20 minutes on CPU"
+	@echo "This only needs to be done once - index is saved to disk"
 	$(PYTHON) src/semantic.py
 	@echo "=== FAISS index saved to data/processed/ ==="
 
@@ -76,6 +78,13 @@ indexes: bm25 semantic
 all: data indexes
 	@echo "=== Full pipeline complete. Ready to run the app! ==="
 
+# ── Web App ───────────────────────────────────────────────────
+# Runs the Streamlit app locally
+# Make sure indexes are already built before running
+app:
+	@echo "=== Launching Streamlit app ==="
+	streamlit run app/app.py --server.fileWatcherType=none
+
 # ── Cleanup ───────────────────────────────────────────────────
 # Removes processed files and indexes so you can rebuild from scratch
 # Use with caution - you'll need to re-run the pipeline after this
@@ -87,6 +96,7 @@ clean:
 	rm -f data/processed/*.npy
 	@echo "Clean complete. Run 'make all' to rebuild."
 
+
 # ── Marks these as non-file targets ───────────────────────────
 # Without this, make gets confused if a file named "data" exists
-.PHONY: help setup update-env data bm25 semantic indexes all clean
+.PHONY: help setup update-env data bm25 semantic indexes all clean app
