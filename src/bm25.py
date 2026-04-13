@@ -14,6 +14,7 @@ try:
     from src.utils import load_corpus, tokenize
 except ModuleNotFoundError:
     from utils import load_corpus, tokenize
+ 
 
 # Deafult path to save/load the BM25 index
 # Using __fle__ so path is always relative to this file's location
