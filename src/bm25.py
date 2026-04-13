@@ -187,5 +187,5 @@ if __name__ == "__main__":
         print(f"\nQuery: '{query}'")
         results = search_bm25(query, bm25_loaded, metadata_loaded, top_k=3)
         for r in results:
-            print(f"  [{r['rank']}] {r['title'][:60]}  (score: {r['score']})")
+            print(f"  [{r['rank']}] {r['title'][:60]} {r['parent_asin'][:60]} (score: {r['score']})")
 

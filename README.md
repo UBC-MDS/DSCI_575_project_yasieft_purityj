@@ -2,7 +2,7 @@
 ### A Smart Product Search System for Amazon Beauty Products
 
 > **DSCI 575 Project** | University of British Columbia Master of Data Science  
-> Built by: Yasi eft and Purity Jangaya
+> Built by: Yasaman Eftekharypour and Purity Jangaya
 
 ---
 
@@ -47,6 +47,14 @@ cd DSCI_575_project_yasieft_purityj
 ```
 
 ### 2. Set up environment
+
+#### for windows users
+- create the environment: >conda env create -f environment.yml
+- 
+- 
+
+#### for limux-based systems
+
 
 ```bash
 make setup
@@ -261,7 +269,7 @@ python src/semantic.py
 | Name | GitHub |
 |---|---|
 | Purity Jangaya | @purityj |
-| Jasmine | @jasmine |
+| Yasaman Eftekharypour | @jasmine |
 
 ---
 
