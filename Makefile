@@ -83,7 +83,7 @@ all: data indexes
 # Make sure indexes are already built before running
 app:
 	@echo "=== Launching Streamlit app ==="
-	streamlit run app/app.py
+	streamlit run app/app.py --server.fileWatcherType=none
 
 # ── Cleanup ───────────────────────────────────────────────────
 # Removes processed files and indexes so you can rebuild from scratch
