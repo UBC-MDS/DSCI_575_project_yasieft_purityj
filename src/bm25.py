@@ -176,7 +176,8 @@ if __name__ == "__main__":
     test_queries = [
         "gentle cleanser for sensitive skin",
         "CeraVe moisturizer",
-        "vitamin C serum"
+        "vitamin C serum",
+        "something to keep my face hydrated all day"
     ]
 
     # Load from disk to verify save/load works correctly
@@ -188,6 +189,3 @@ if __name__ == "__main__":
         for r in results:
             print(f"  [{r['rank']}] {r['title'][:60]}  (score: {r['score']})")
 
-
-
-    
