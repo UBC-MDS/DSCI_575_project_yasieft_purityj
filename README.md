@@ -50,12 +50,9 @@ cd DSCI_575_project_yasieft_purityj
 ### 2. Set up environment
 
 #### for windows users
-- create the environment: >conda env create -f environment.yml
-- 
-- 
+- create the environment: conda env create -f environment.yml
 
 #### for limux-based systems
-
 
 ```bash
 make setup
