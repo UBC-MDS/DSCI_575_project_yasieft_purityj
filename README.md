@@ -84,7 +84,7 @@ make app
 
 ## Demo
 
-![Demo](demo.mp4)
+![Demo](output.gif)
 
 ---
 
