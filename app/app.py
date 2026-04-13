@@ -15,6 +15,13 @@ from sentence_transformers import SentenceTransformer
 
 # REPO_ROOT is the base directory for relative paths
 REPO_ROOT = Path(__file__).parent.parent
+sys.path.append(str(REPO_ROOT))
+
+from src.utils import tokenize
+# from src.data_loader import tokenize
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+
 FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
 EMBEDDINGS_PATH = REPO_ROOT / "data" / "processed" / "embeddings.npy"
 
@@ -27,84 +34,6 @@ FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
 PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 conn = duckdb.connect()
   
-# Tokenization function for BM25
-def tokenize(text):
-    """
-    Tokenize the input text for BM25 indexing.
-    """
-    STOPWORDS = {
-        "a", "an", "the", "and", "or", "but", "in", "on", "at",
-        "to", "for", "of", "with", "by", "from", "is", "it",
-        "this", "that", "are", "was", "be", "has", "have"
-    }
-
-    # Preprocess the text
-    text = text.lower()
-    text = re.sub(r'[^a-z0-9\s]', ' ', text)  # Remove punctuation
-    tokens = text.split()
-    tokens = [t for t in tokens if t not in STOPWORDS and len(t) > 1]
-
-    return tokens
-
-# Load the semantic FAISS index
-def load_semantic_index(index_path=FAISS_INDEX_PATH):
-    if not index_path.exists():
-        raise FileNotFoundError(f"FAISS index not found at {index_path}. Run build_faiss_index() first.")
-    
-    print(f"Loading FAISS index from {index_path}...")
-    index = faiss.read_index(str(index_path))
-    print(f"Loaded FAISS index with {index.ntotal} vectors")
-    return index
-
-# Load BM25 index and metadata
-def load_bm25_index(index_path=BM25_INDEX_PATH, metadata_path=CORPUS_METADATA_PATH):
-    if not index_path.exists():
-        raise FileNotFoundError(f"BM25 index not found at {index_path}. Run build_bm25_index() first.")
-    
-    print(f"Loading BM25 index from {index_path}...")
-    with open(index_path, "rb") as f:
-        saved = pickle.load(f)
-    
-    bm25 = saved["bm25"]
-    tokenized_corpus = saved["tokenized_corpus"]
-    
-    print(f"Loading corpus metadata from {metadata_path}...")
-    with open(metadata_path, "rb") as f:
-        metadata = pickle.load(f)
-    
-    print(f"Loaded index with {len(metadata)} documents")
-    return bm25, metadata, tokenized_corpus
-
-# Search function for semantic queries using FAISS
-def search_semantic(query, index, metadata, model, top_k=5):
-    query_vector = model.encode([query], normalize_embeddings=True, convert_to_numpy=True)
-    scores, indices = index.search(query_vector.astype(np.float32), top_k)
-
-    results = []
-    for rank, (idx, score) in enumerate(zip(indices[0], scores[0])):
-        result = metadata[idx].copy()
-        result["score"] = round(float(score), 4)
-        result["rank"] = rank + 1
-        results.append(result)
-
-    return results
-
-# Search function for BM25 queries
-def search_bm25(query, bm25, metadata, top_k=5):
-    query_tokens = tokenize(query)
-    scores = bm25.get_scores(query_tokens)
-    top_indices = np.argsort(scores)[::-1][:top_k]
-
-    results = []
-    for idx in top_indices:
-        result = metadata[idx].copy()
-        result["score"] = round(float(scores[idx]), 4)
-        result["rank"] = len(results) + 1
-        results.append(result)
-
-    return results
-
-
 def get_review(parent_asin):
     query = f"""
         SELECT text
