@@ -84,7 +84,7 @@ make app
 
 ## Demo
 
-```bash
+```
 <video src="demo.mp4" controls width="600"></video>
 ```
 
