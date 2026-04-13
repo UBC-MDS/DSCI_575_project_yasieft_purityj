@@ -84,9 +84,7 @@ make app
 
 ## Demo
 
-```html
 ![Demo](demo.gif)
-```
 
 ---
 
