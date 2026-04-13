@@ -138,17 +138,46 @@ def load_metadata_with_duckdb(
     return duckdb.query(query).df()
 
 
+def load_reviews_with_duckdb(
+    parquet_path="data/processed/All_Beauty.parquet",
+    columns=None,
+    limit=None
+):
+    """
+    Load review using DuckDB - memory efficient, only loads what you need.
+    
+    columns: list of column names to load. None = all columns
+    limit: max number of rows. None = all rows
+    
+    Example:
+        df = load_reviews_with_duckdb(columns=["parent_asin", "title", "price"])
+    """
+    col_str = ", ".join(columns) if columns else "*"
+    limit_str = f"LIMIT {limit}" if limit else ""
+
+    query = f"""
+        SELECT {col_str}
+        FROM read_parquet('{parquet_path}')
+        {limit_str}
+    """
+
+    return duckdb.query(query).df()
+
+
 if __name__ == "__main__":
-    # Step 1: Download
-    download_data()
+    # # Step 1: Download
+    # download_data()
 
-    # Step 2: Convert to parquet incrementally
-    convert_to_parquet()
+    # # Step 2: Convert to parquet incrementally
+    # convert_to_parquet()
 
-    # Step 3: Quick sanity check with DuckDB
-    print("\nSanity check - first 3 metadata records:")
-    df = load_metadata_with_duckdb(
-        columns=["parent_asin", "title", "price", "average_rating"],
-        limit=3
-    )
-    print(df)
+    # # Step 3: Quick sanity check with DuckDB
+    # print("\nSanity check - first 3 metadata records:")
+    # df = load_metadata_with_duckdb(
+    #     columns=["parent_asin", "title", "price", "average_rating"],
+    #     limit=3
+    # )
+    # print(df)
+    
+    reviews = load_reviews_with_duckdb(columns=["text"])
+    print(reviews)

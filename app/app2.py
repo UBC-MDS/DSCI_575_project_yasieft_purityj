@@ -1,6 +1,5 @@
 import streamlit as st
 import pickle
-import duckdb
 import random
 import sys
 import os
@@ -8,8 +7,6 @@ import re
 import faiss
 import numpy as np
 from pathlib import Path
-import pandas as pd
-from datetime import datetime
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
@@ -21,12 +18,7 @@ EMBEDDINGS_PATH = REPO_ROOT / "data" / "processed" / "embeddings.npy"
 # BM25 index and metadata paths
 BM25_INDEX_PATH = REPO_ROOT / "data" / "processed" / "bm25_index.pkl"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
-FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
 
-
-PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
-conn = duckdb.connect()
-  
 # Tokenization function for BM25
 def tokenize(text):
     """
@@ -104,41 +96,6 @@ def search_bm25(query, bm25, metadata, top_k=5):
 
     return results
 
-
-def get_review(parent_asin):
-    query = f"""
-        SELECT text
-        FROM read_parquet('{PARQUET_PATH}')
-        WHERE asin = ?
-        LIMIT 1
-    """
-    result = conn.execute(query, [parent_asin]).fetchone()
-
-    if result:
-        return result[0]
-    return "No review found"
-
-def store_feedback(feedback_data):
-    if not feedback_data:
-        return
-
-    df = pd.DataFrame(feedback_data)
-
-    # Add timestamp (VERY useful for analysis later)
-    df["timestamp"] = datetime.now().isoformat()
-
-    # Append to CSV (create if not exists)
-    file_exists = FEEDBACK_PATH.exists()
-
-    df.to_csv(
-        FEEDBACK_PATH,
-        mode="a",
-        header=not file_exists,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-
 # Load BM25 index if not already loaded
 if 'bm25_loaded' not in st.session_state:
     bm25, tokenized_corpus, _ = load_bm25_index()
@@ -155,7 +112,7 @@ if 'semantic_loaded' not in st.session_state:
     st.session_state.model = SentenceTransformer('all-MiniLM-L6-v2')  # Load the sentence transformer model
 
 # Streamlit interface for search mode selection
-search_mode = st.radio("Select Search Mode", ["BM25", "Semantic"]) #, "Hybrid"])
+search_mode = st.radio("Select Search Mode", ["BM25", "Semantic", "Hybrid"])
 query = st.text_input("Enter your query:")
 
 # Display results if the query is not empty
@@ -166,7 +123,7 @@ if query:
         results = search_semantic(query, st.session_state.faiss_index, st.session_state.metadata, st.session_state.model, top_k=3)
     else:
         results = []  # Handle Hybrid search or other modes if needed
-    
+
     st.subheader(f"Top 3 results for '{query}' using {search_mode} search:")
 
     feedback_data = []  # Store feedback here
@@ -175,29 +132,25 @@ if query:
     for idx, result in enumerate(results):
         with st.expander(f"Result {idx + 1}: {result['title']}"):
             st.write(f"**Product Title:** {result['title']}")
-            # truncated_review = f"Simulated review for {result['title'][:200]}..."  # Replace with real review
-            
-            truncated_review = get_review(result["parent_asin"])[:200]
-            st.write(f"**Review:** {truncated_review}...")  # Truncate review for display
-            
+            truncated_review = f"Simulated review for {result['title'][:200]}..."  # Replace with real review
+            st.write(f"**Review:** {truncated_review}")
             st.write(f"**Retrieval Score:** {result['score']:.2f}")
 
-            feedback = st.radio(f"Was this result helpful?", 
-                                options=["Not selected", "👍", "👎"], 
-                                index=0,
-                                key=f"feedback_{idx}")
-            if feedback in ["👍", "👎"]:
+            feedback = st.radio(f"Was this result helpful?", options=["👍", "👎"], key=f"feedback_{idx}")
+            if feedback:
                 feedback_data.append({
                     "product_title": result["title"],
                     "feedback": feedback,
                     "score": result["score"]
                 })
 
-    # Save feedback to CSV
-    if feedback_data:
-        store_feedback(feedback_data)
-        st.success("Feedback saved!")
+#     # Save feedback to CSV
+#     if feedback_data:
+#         store_feedback(feedback_data)
+#         st.success("Feedback saved!")
 
-
-
-
+# # Function to save feedback in CSV
+# def store_feedback(feedback_data):
+#     import pandas as pd
+#     df = pd.DataFrame(feedback_data)
+#     df.to_csv("feedback.csv", mode="a", header=False, index=False)
