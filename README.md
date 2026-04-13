@@ -82,6 +82,12 @@ make all
 make app
 ```
 
+## Demo
+
+```bash
+[Watch demo](./video.mov)
+```
+
 ---
 
 ## Developers
