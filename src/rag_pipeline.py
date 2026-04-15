@@ -5,10 +5,6 @@ import duckdb
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
 
-# Your existing imports
-from bm25 import load_bm25_index, search_bm25
-from semantic import load_semantic_index, search_semantic
-
 # -----------------------------
 # PATH SETUP
 # -----------------------------
@@ -18,15 +14,35 @@ PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 
 FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
+
+# Your existing imports
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
 conn = duckdb.connect()
 # -----------------------------
 # STEP 1: LLM PIPELINE
 # -----------------------------
 llm = pipeline("text-generation", model="Qwen/Qwen3.5-0.8B")
 
-def generate(prompt):
+def generate_llm_answer(prompt):
     output = llm(prompt, max_new_tokens=200)[0]["generated_text"]
-    return output
+    answer = output[len(prompt):].strip()
+    
+    # Remove garbage patterns
+    if "<think>" in answer:
+        answer = answer.split("</think>")[-1].strip()
+
+    if "assistant" in answer:
+        answer = answer.split("assistant")[-1].strip()
+
+    # Remove repeated numbering junk
+    if "1." in answer and "2." in answer:
+        lines = answer.split("\n")
+        cleaned = [l for l in lines if len(l.strip()) > 10]
+        answer = "\n".join(cleaned)
+
+    return answer.strip()
+ 
 
 
 # -----------------------------
@@ -92,11 +108,11 @@ def build_context(docs):
 
     for doc in docs:
         block = f"""
-Product ASIN: {doc.get('parent_asin', 'N/A')}
-Title: {doc.get('title', 'N/A')}
-Rating: {doc.get('rating_number', 'N/A')}/5
-Review: {doc.get('review_text', get_review(doc["parent_asin"])[:200])}
-"""
+        Product ASIN: {doc.get('parent_asin', 'N/A')}
+        Title: {doc.get('title', 'N/A')}
+        Rating: {doc.get('score', 'N/A')}
+        Review: {doc.get('review_text', get_review(doc["parent_asin"])[:200])}
+        """
         context_blocks.append(block.strip())
 
     return "\n\n".join(context_blocks)
@@ -109,17 +125,35 @@ Review: {doc.get('review_text', get_review(doc["parent_asin"])[:200])}
 # Variant 1 (strict grounding)
 SYSTEM_PROMPT_V1 = """
 You are a helpful Amazon shopping assistant.
-Answer ONLY using the provided reviews.
-Do NOT make up information.
-Always cite the product ASIN.
-Keep the answer concise.
+
+STRICT RULES:
+- Answer ONLY using the provided reviews
+- Do NOT make up information
+- Do NOT repeat the question or instructions
+- Do NOT output words like "assistant" or tags like "<think>"
+- Do NOT generate numbered lists (1, 2, 3, etc.)
+- Keep the answer short and clear (2–4 sentences max)
+- Always cite product ASINs when relevant
+
+Output ONLY the final answer. No extra text.
 """
 
-# Variant 2 (more flexible)
 SYSTEM_PROMPT_V2 = """
 You are an expert product recommendation assistant.
-Use the reviews below to answer the question.
-Summarize key insights and mention product ASINs when relevant.
+
+TASK:
+Use the provided reviews to answer the question.
+
+RULES:
+- Base your answer ONLY on the reviews
+- Do NOT invent information
+- Do NOT repeat the prompt or instructions
+- Do NOT output "assistant" or "<think>"
+- Avoid numbered or bullet lists unless necessary
+- Keep the answer concise and readable
+- Mention product ASINs when relevant
+
+Output ONLY the final answer. No explanations.
 """
 
 
@@ -127,28 +161,29 @@ def build_prompt(query, context, version="v1"):
     system_prompt = SYSTEM_PROMPT_V1 if version == "v1" else SYSTEM_PROMPT_V2
 
     return f"""
-{system_prompt}
+    {system_prompt}
 
-Customer Reviews:
-{context}
+    Customer Reviews Are:
+    {context}
 
-Question: {query}
+    Question is: {query}
 
-Answer:
-"""
+    FINAL ANSWER:
+    """
 
 
 # -----------------------------
 # STEP 2.4: RAG PIPELINE
 # -----------------------------
-def rag_pipeline(query, mode="semantic", prompt_version="v1", top_k=5):
+def rag_pipeline(query, mode="Semantic", prompt_version="v1", top_k=5):
 
+    docs = []
     # 1. Retrieval
-    if mode == "semantic":
+    if mode == "Semantic":
         docs = semantic_retrieve(query, top_k)
-    elif mode == "bm25":
+    elif mode == "BM25":
         docs = bm25_retrieve(query, top_k)
-    elif mode == "hybrid":
+    elif mode == "Hybrid":
         docs = hybrid_retrieve(query, top_k)
     else:
         raise ValueError("Invalid mode")
@@ -160,9 +195,9 @@ def rag_pipeline(query, mode="semantic", prompt_version="v1", top_k=5):
     prompt = build_prompt(query, context, version=prompt_version)
 
     # 4. LLM
-    answer = generate(prompt)
+    answer = generate_llm_answer(prompt)
 
-    return answer, docs
+    return answer, prompt, docs
 
 
 # -----------------------------
@@ -172,7 +207,7 @@ def evaluate_queries(queries, mode="hybrid"):
     results = []
 
     for q in queries:
-        answer, docs = rag_pipeline(q, mode=mode)
+        answer, prompt, docs = rag_pipeline(q, mode=mode)
 
         print("\n======================")
         print("QUERY:", q)
@@ -194,13 +229,13 @@ if __name__ == "__main__":
     query = "What are the best moisturizers for dry skin?"
 
     # Change mode: "semantic", "bm25", "hybrid"
-    answer, docs = rag_pipeline(query, mode="hybrid", prompt_version="v1")
+    answer, prompt, docs = rag_pipeline(query, mode="Hybrid", prompt_version="v1")
 
     print("\n=== FINAL ANSWER ===\n")
     print(answer)
 
-    print("\n=== RETRIEVED DOCS ===\n")
-    for i, doc in enumerate(docs):
-        print(f"{i+1}. {doc.get('title', 'N/A')} | Rating: {doc.get('rating_number', 'N/A')}")
+    # print("\n=== RETRIEVED DOCS ===\n")
+    # for i, doc in enumerate(docs):
+    #     print(f"{i+1}. {doc.get('title', 'N/A')} | Rating: {doc.get('score', 'N/A')}")
 
 

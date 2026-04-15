@@ -21,6 +21,7 @@ sys.path.append(str(REPO_ROOT))
 
 from src.bm25 import load_bm25_index, search_bm25
 from src.semantic import load_semantic_index, search_semantic
+from src.rag_pipeline import evaluate_queries, rag_pipeline
 
 FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
 EMBEDDINGS_PATH = REPO_ROOT / "data" / "processed" / "embeddings.npy"
@@ -96,17 +97,17 @@ if 'semantic_loaded' not in st.session_state:
 # ==============================
 # SIMPLE RAG GENERATOR (placeholder)
 # ==============================
-def generate_rag_answer(query, docs):
+def format_rag_answer(query, results):
     """
     Simple placeholder RAG generation.
     Replace this later with OpenAI / LLM call.
     """
-    context = " ".join(docs)
+    # context = " ".join(query)
 
     answer = f"""
-    Based on the retrieved documents, here is a helpful answer:
+    Based on the retrieved documents and reviews, here is a helpful answer:
 
-    {context[:500]}
+    {results}
     """
 
     # Truncate long answers
@@ -116,13 +117,15 @@ def generate_rag_answer(query, docs):
 
     return answer
 
+
 # ==============================
 # UI TABS
 # ==============================
-tab1, tab2 = st.tabs(["🔍 Search", "🤖 RAG"])
+tab1, tab2 = st.tabs(["🔍 Search", "🧠 RAG"])
+
 
 # ==============================
-# SEARCH TAB (UNCHANGED)
+# SEARCH TAB 
 # ==============================
 with tab1:
     search_mode = st.radio("Select Search Mode", ["BM25", "Semantic"])
@@ -163,25 +166,19 @@ with tab1:
             st.success("Feedback saved!")
 
 # ==============================
-# RAG TAB (NEW)
+# RAG TAB 
 # ==============================
 with tab2:
-    rag_mode = st.radio("Retrieval Method", ["BM25", "Semantic"], key="rag_mode")
+    rag_mode = st.radio("Select Search Mode", ["BM25", "Semantic", "Hybrid"], key="rag_mode")
     rag_query = st.text_input("Ask a question:", key="rag_query")
 
     if rag_query:
         # Retrieve documents
-        if rag_mode == "BM25":
-            results = search_bm25(rag_query, st.session_state.bm25, st.session_state.tokenized_corpus, top_k=3)
-        else:
-            results = search_semantic(rag_query, st.session_state.faiss_index, st.session_state.metadata, st.session_state.model, top_k=3)
-
-        # Extract document texts
-        docs = [get_review(r["parent_asin"])[:300] for r in results]
-
+        results, prompt, docs = rag_pipeline(rag_query, mode=rag_mode)
+        
         # Generate answer
-        answer = generate_rag_answer(rag_query, docs)
-
+        answer = format_rag_answer(rag_query, results)
+        print(f"Answer is : {answer}")
         # =========================
         # ANSWER PANEL (PROMINENT)
         # =========================
@@ -193,6 +190,6 @@ with tab2:
         # =========================
         st.markdown("### 📚 Sources")
 
-        for i, (doc, res) in enumerate(zip(docs, results), 1):
-            with st.expander(f"[{i}] {res['title']}"):
+        for i, (doc) in enumerate(docs, 1):
+            with st.expander(f"[{i}] {doc['title']}"):
                 st.write(doc)
