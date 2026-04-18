@@ -66,24 +66,24 @@ def bm25_retrieve(query, top_k=5):
     return search_bm25(query, bm25, tokenized_corpus, top_k)
 
 
-# -----------------------------
-# STEP 3: HYBRID RETRIEVER
-# -----------------------------
-def hybrid_retrieve(query, top_k=5):
-    sem_results = semantic_retrieve(query, top_k)
-    bm25_results = bm25_retrieve(query, top_k)
+# # -----------------------------
+# # STEP 3: HYBRID RETRIEVER
+# # -----------------------------
+# def hybrid_retrieve(query, top_k=5):
+#     sem_results = semantic_retrieve(query, top_k)
+#     bm25_results = bm25_retrieve(query, top_k)
 
-    # Merge + deduplicate (by unique id or text)
-    seen = set()
-    combined = []
+#     # Merge + deduplicate (by unique id or text)
+#     seen = set()
+#     combined = []
 
-    for doc in sem_results + bm25_results:
-        text = doc.get("title", "")
-        if text not in seen:
-            seen.add(text)
-            combined.append(doc)
+#     for doc in sem_results + bm25_results:
+#         text = doc.get("title", "")
+#         if text not in seen:
+#             seen.add(text)
+#             combined.append(doc)
 
-    return combined[:top_k]
+#     return combined[:top_k]
 
 
 # -----------------------------
@@ -183,8 +183,6 @@ def rag_pipeline(query, mode="Semantic", prompt_version="v1", top_k=5):
         docs = semantic_retrieve(query, top_k)
     elif mode == "BM25":
         docs = bm25_retrieve(query, top_k)
-    elif mode == "Hybrid":
-        docs = hybrid_retrieve(query, top_k)
     else:
         raise ValueError("Invalid mode")
 
