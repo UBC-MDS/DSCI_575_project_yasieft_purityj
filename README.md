@@ -115,10 +115,13 @@ DSCI_575_project_yasieft_purityj/
 │   ├── data_loader.py               
 │   ├── utils.py                     
 │   ├── bm25.py                      
-│   └── semantic.py                  
+│   └── semantic.py
+│   └── hybrid.py
+│   └── rag_pipeline.py                 
 │
 ├── results/
-│   └── milestone1_discussion.md     
+│   └── milestone1_discussion.md
+│   └── milestone2_discussion.md     
 │
 └── app/
     └── app.py                       
