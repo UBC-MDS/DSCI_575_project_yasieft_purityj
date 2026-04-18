@@ -84,7 +84,7 @@ make app
 
 ## Demo
 
-![Demo](output.gif)
+![Demo](demo_rag.gif)
 
 ---
 
