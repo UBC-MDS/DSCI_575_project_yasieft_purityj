@@ -1,64 +1,78 @@
 import streamlit as st
 import pickle
 import duckdb
-import random
-import sys
-import os
 import re
-import faiss
-import numpy as np
-from pathlib import Path
 import pandas as pd
+from pathlib import Path
 from datetime import datetime
-from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
+from rank_bm25 import BM25Okapi
+import sys
 
-# REPO_ROOT is the base directory for relative paths
+
+# ==============================
+# PATH SETUP
+# ==============================
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.append(str(REPO_ROOT))
 
-from src.utils import tokenize
-# from src.data_loader import tokenize
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
-
-FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
-EMBEDDINGS_PATH = REPO_ROOT / "data" / "processed" / "embeddings.npy"
-
-# BM25 index and metadata paths
+PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 BM25_INDEX_PATH = REPO_ROOT / "data" / "processed" / "bm25_index.pkl"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
-
-
-PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
+# Custom imports
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+from src.rag_pipeline import rag_pipeline
+from src.hybrid import hybrid_rag_pipeline
 conn = duckdb.connect()
-  
-def get_review(parent_asin):
+
+# ==============================
+# UTILITIES
+# ==============================
+STOPWORDS = {
+    "a","an","the","and","or","but","in","on","at",
+    "to","for","of","with","by","from","is","it",
+    "this","that","are","was","be","has","have"
+}
+
+def tokenize(text):
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9\s]', ' ', text)
+    tokens = [t for t in text.split() if t not in STOPWORDS and len(t) > 1]
+    return tokens
+
+# ==============================
+# CACHED LOADERS
+# ==============================
+@st.cache_resource
+def load_models():
+    bm25, tokenized_corpus, _ = load_bm25_index()
+    faiss_index = load_semantic_index()
+    metadata = pickle.load(open(CORPUS_METADATA_PATH, "rb"))
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    return bm25, tokenized_corpus, faiss_index, metadata, model
+
+@st.cache_data
+def get_reviews(asins):
+    if not asins:
+        return {}
     query = f"""
-        SELECT text
+        SELECT asin, text
         FROM read_parquet('{PARQUET_PATH}')
-        WHERE asin = ?
-        LIMIT 1
+        WHERE asin IN ({','.join(['?']*len(asins))})
     """
-    result = conn.execute(query, [parent_asin]).fetchone()
+    return {r[0]: r[1] for r in conn.execute(query, asins).fetchall()}
 
-    if result:
-        return result[0]
-    return "No review found"
-
+# ==============================
+# FEEDBACK STORAGE
+# ==============================
 def store_feedback(feedback_data):
     if not feedback_data:
         return
-
     df = pd.DataFrame(feedback_data)
-
-    # Add timestamp (VERY useful for analysis later)
     df["timestamp"] = datetime.now().isoformat()
-
-    # Append to CSV (create if not exists)
     file_exists = FEEDBACK_PATH.exists()
-
     df.to_csv(
         FEEDBACK_PATH,
         mode="a",
@@ -67,66 +81,112 @@ def store_feedback(feedback_data):
         encoding="utf-8-sig"
     )
 
-
-# Load BM25 index if not already loaded
-if 'bm25_loaded' not in st.session_state:
-    bm25, tokenized_corpus, _ = load_bm25_index()
-    st.session_state.bm25_loaded = True
+# ==============================
+# LOAD MODELS INTO SESSION STATE
+# ==============================
+if 'loaded' not in st.session_state:
+    bm25, tokenized_corpus, faiss_index, metadata, model = load_models()
     st.session_state.bm25 = bm25
     st.session_state.tokenized_corpus = tokenized_corpus
-
-# Load semantic index if not already loaded
-if 'semantic_loaded' not in st.session_state:
-    faiss_index = load_semantic_index()
-    st.session_state.semantic_loaded = True
     st.session_state.faiss_index = faiss_index
-    st.session_state.metadata = pickle.load(open(CORPUS_METADATA_PATH, "rb"))
-    st.session_state.model = SentenceTransformer('all-MiniLM-L6-v2')  # Load the sentence transformer model
+    st.session_state.metadata = metadata
+    st.session_state.model = model
+    st.session_state.loaded = True
 
-# Streamlit interface for search mode selection
-search_mode = st.radio("Select Search Mode", ["BM25", "Semantic"]) #, "Hybrid"])
-query = st.text_input("Enter your query:")
+# ==============================
+# RAG ANSWER FORMATTER
+# ==============================
+def format_rag_answer(query, results):
+    answer = f"""
+    Based on the retrieved documents and reviews, here is a helpful answer:
 
-# Display results if the query is not empty
-if query:
-    if search_mode == "BM25":
-        results = search_bm25(query, st.session_state.bm25, st.session_state.tokenized_corpus, top_k=3)
-    elif search_mode == "Semantic":
-        results = search_semantic(query, st.session_state.faiss_index, st.session_state.metadata, st.session_state.model, top_k=3)
-    else:
-        results = []  # Handle Hybrid search or other modes if needed
-    
-    st.subheader(f"Top 3 results for '{query}' using {search_mode} search:")
+    {results}
+    """
+    MAX_LEN = 800
+    if len(answer) > MAX_LEN:
+        answer = answer[:MAX_LEN] + "..."
+    return answer
 
-    feedback_data = []  # Store feedback here
+# ==============================
+# STREAMLIT UI
+# ==============================
+tab1, tab2 = st.tabs(["🔍 Search", "🧠 RAG"])
 
-    # Loop through each result and display it
-    for idx, result in enumerate(results):
-        with st.expander(f"Result {idx + 1}: {result['title']}"):
-            st.write(f"**Product Title:** {result['title']}")
-            # truncated_review = f"Simulated review for {result['title'][:200]}..."  # Replace with real review
+# ==============================
+# SEARCH TAB
+# ==============================
+with tab1:
+    search_mode = st.radio("Select Search Mode", ["BM25", "Semantic"])
+    query = st.text_input("Enter your query:", key="search_query")
+
+    if query:
+        if search_mode == "BM25":
+            results = search_bm25(
+                query, st.session_state.bm25, st.session_state.tokenized_corpus, top_k=3
+            )
+        else:
+            results = search_semantic(
+                query,
+                st.session_state.faiss_index,
+                st.session_state.metadata,
+                st.session_state.model,
+                top_k=3
+            )
+
+        st.subheader(f"Top 3 results for '{query}' using {search_mode}")
+
+        # Batch fetch reviews
+        asins = [r['parent_asin'] for r in results]
+        reviews = get_reviews(asins)
+
+        feedback_data = []
+
+        for idx, result in enumerate(results):
+            with st.expander(f"Result {idx + 1}: {result['title']}"):
+                st.write(f"**Product Title:** {result['title']}")
+                review = reviews.get(result['parent_asin'], "No review found")[:200]
+                st.write(f"**Review:** {review}...")
+                st.write(f"**Score:** {result['score']:.2f}")
+
+                feedback = st.radio(
+                    "Helpful?",
+                    ["Not selected", "👍", "👎"],
+                    key=f"feedback_{idx}"
+                )
+
+                if feedback in ["👍", "👎"]:
+                    feedback_data.append({
+                        "product_title": result["title"],
+                        "feedback": feedback,
+                        "score": result["score"]
+                    })
+
+        if feedback_data:
+            store_feedback(feedback_data)
+            st.success("Feedback saved!")
+
+# ==============================
+# RAG TAB
+# ==============================
+with tab2:
+    rag_mode = st.radio("Select Search Mode", ["BM25", "Semantic", "Hybrid"], key="rag_mode")
+    rag_query = st.text_input("Ask a question:", key="rag_query")
+
+    if rag_query:
+        with st.spinner("Generating answer..."):
             
-            truncated_review = get_review(result["parent_asin"])[:200]
-            st.write(f"**Review:** {truncated_review}...")  # Truncate review for display
-            
-            st.write(f"**Retrieval Score:** {result['score']:.2f}")
+            if rag_mode == "Hybrid":
+                results, prompt, docs = hybrid_rag_pipeline(rag_query, mode="Hybrid", prompt_version="v1", top_k=5)
 
-            feedback = st.radio(f"Was this result helpful?", 
-                                options=["Not selected", "👍", "👎"], 
-                                index=0,
-                                key=f"feedback_{idx}")
-            if feedback in ["👍", "👎"]:
-                feedback_data.append({
-                    "product_title": result["title"],
-                    "feedback": feedback,
-                    "score": result["score"]
-                })
+            else:
+                results, prompt, docs = rag_pipeline(rag_query, mode="BM25")
+            # results, prompt, docs = rag_pipeline(rag_query, mode=rag_mode)
+            answer = format_rag_answer(rag_query, results)
 
-    # Save feedback to CSV
-    if feedback_data:
-        store_feedback(feedback_data)
-        st.success("Feedback saved!")
+        st.markdown("## 🧠 Generated Answer")
+        st.success(answer)
 
-
-
-
+        st.markdown("### 📚 Sources")
+        for i, doc in enumerate(docs, 1):
+            with st.expander(f"[{i}] {doc['title']}"):
+                st.write(doc)

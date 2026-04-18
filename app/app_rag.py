@@ -111,7 +111,7 @@ def format_rag_answer(query, results):
     """
 
     # Truncate long answers
-    MAX_LEN = 400
+    MAX_LEN = 800
     if len(answer) > MAX_LEN:
         answer = answer[:MAX_LEN] + "..."
 
