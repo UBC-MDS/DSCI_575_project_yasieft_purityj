@@ -309,7 +309,7 @@ python src/semantic.py
 | Name | GitHub |
 |---|---|
 | Purity Jangaya | @purityj |
-| Yasaman Eftekharypour | @jasmine |
+| Yasaman Eftekharypour | @yasieft |
 
 ---
 
