@@ -109,7 +109,7 @@ DSCI_575_project_yasieft_purityj/
 │
 ├── notebooks/
 │   └── milestone1_exploration.ipynb
-│   └── milestone2_exploration.ipynb 
+│   └── milestone2_rag.ipynb 
 │
 ├── src/
 │   ├── __init__.py
