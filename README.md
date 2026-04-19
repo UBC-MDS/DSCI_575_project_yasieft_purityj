@@ -108,7 +108,8 @@ DSCI_575_project_yasieft_purityj/
 │   └── processed/                   # gitignored
 │
 ├── notebooks/
-│   └── milestone1_exploration.ipynb 
+│   └── milestone1_exploration.ipynb
+│   └── milestone2_exploration.ipynb 
 │
 ├── src/
 │   ├── __init__.py
