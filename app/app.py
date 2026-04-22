@@ -1,3 +1,6 @@
+from src.loader import download_index_files
+download_index_files()
+
 import streamlit as st
 import pickle
 import duckdb

@@ -1,0 +1,16 @@
+python-dotenv
+pandas
+numpy
+duckdb
+pyarrow
+rank-bm25
+sentence-transformers
+faiss-cpu
+streamlit
+tqdm
+langchain-groq
+langchain
+tavily-python
+datasets
+huggingface-hub
+transformers

@@ -4,6 +4,8 @@ data/processed/
 *.jsonl
 *.jsonl.gz
 
+#data/processed/embeddings.npy  #it's of size 165MB but the app does not use it
+
 # Environment
 .env
 __pycache__/
@@ -11,6 +13,6 @@ __pycache__/
 .DS_Store
 
 # Model artifacts (can be large)
-*.pkl
-*.faiss
+#*.pkl
+#*.faiss
 *.index
