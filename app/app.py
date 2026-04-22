@@ -4,12 +4,18 @@ download_index_files()
 import streamlit as st
 import pickle
 import duckdb
-import re
+import os
+import sys
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
-import sys
+from dotenv import load_dotenv
+
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+from src.rag_pipeline import rag_pipeline
+from src.hybrid import hybrid_rag_pipeline
 
 # ==============================
 # PATH SETUP
@@ -21,12 +27,19 @@ PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
 
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
-from src.rag_pipeline import rag_pipeline
-from src.hybrid import hybrid_rag_pipeline
-
 conn = duckdb.connect()
+
+
+def get_secret(key):
+    try:
+        return st.secrets[key] 
+    except Exception:
+        return os.getenv(key)
+
+# set all secrets as env vars so src/ modules can use as.getenv normally
+os.environ["GROQ_API_KEY"] = get_secret("GROQ_API_KEY") or ""
+os.environ["HF_TOKEN"] = get_secret("HF_TOKEN") or ""
+os.environ["TAVILY_API_KEY"] = get_secret("TAVILY_API_KEY") or ""
 
 # ==============================
 # CACHED LOADERS
