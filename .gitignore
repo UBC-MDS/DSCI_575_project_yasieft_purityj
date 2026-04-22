@@ -4,6 +4,10 @@ data/processed/
 *.jsonl
 *.jsonl.gz
 
+#data/processed/embeddings.npy  #it's of size 165MB but the app does not use it
+
+.streamlit/secrets.toml
+
 # Environment
 .env
 __pycache__/
