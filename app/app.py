@@ -2,10 +2,15 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import streamlit as st
+st.set_page_config(page_title="BeautyFinder AI", layout="wide")
+st.info(" App is starting up, downloading index files... This may take 5-15 minutes on first load.")
+
 from src.loader import download_index_files
 download_index_files()
 
-import streamlit as st
+st.success("Index files loaded! App is ready.")
+
 import pickle
 import duckdb
 import os
