@@ -2,78 +2,198 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import streamlit as st
-st.set_page_config(page_title="BeautyFinder AI", layout="wide")
-st.info(" App is starting up, downloading index files... This may take 5-15 minutes on first load.")
-
-from src.loader import download_index_files
-download_index_files()
-
-st.success("Index files loaded! App is ready.")
-
-import pickle
-import duckdb
 import os
-import pandas as pd
-from datetime import datetime
-from sentence_transformers import SentenceTransformer
-from dotenv import load_dotenv
+import streamlit as st
 
 # ==============================
-# PATH SETUP
+# PAGE CONFIG — must be first st call
 # ==============================
-REPO_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(Path(__file__).parent.parent))
+st.set_page_config(page_title="BeautyFinder AI", layout="wide")
 
-PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
-CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
-FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
-
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
-from src.rag_pipeline import rag_pipeline
-from src.hybrid import hybrid_rag_pipeline
-
-conn = duckdb.connect()
-
-
+# ==============================
+# SECRETS — must be set before any src imports
+# ==============================
 def get_secret(key):
     try:
-        return st.secrets[key] 
+        return st.secrets[key]
     except Exception:
         return os.getenv(key)
 
-# set all secrets as env vars so src/ modules can use as.getenv normally
 os.environ["GROQ_API_KEY"] = get_secret("GROQ_API_KEY") or ""
 os.environ["HF_TOKEN"] = get_secret("HF_TOKEN") or ""
 os.environ["TAVILY_API_KEY"] = get_secret("TAVILY_API_KEY") or ""
 
 # ==============================
-# CACHED LOADERS
+# DOWNLOAD INDEX FILES
 # ==============================
+from src.loader import download_index_files
+
+with st.spinner("⏳ Checking index files..."):
+    download_index_files()
+
+# ==============================
+# IMPORTS (after secrets and downloads)
+# ==============================
+import pickle
+import duckdb
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
+REPO_ROOT = Path(__file__).parent.parent
+PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
+CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
+FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
+
+conn = duckdb.connect()
+
+# ==============================
+# CACHED RESOURCE LOADERS
+# These load ONCE and are shared across all sessions.
+# This prevents the double-loading problem where rag_pipeline.py
+# and app.py were each loading the same indexes into memory.
+# ==============================
+
 @st.cache_resource
-def load_models():
-    # Correct unpacking: bm25, metadata, tokenized_corpus
-    bm25, metadata, tokenized_corpus = load_bm25_index()
+def load_faiss_and_model():
+    """Load FAISS index + embedding model — ~260MB total."""
+    from sentence_transformers import SentenceTransformer
+    from src.semantic import load_semantic_index
     faiss_index = load_semantic_index()
-    sem_metadata = pickle.load(open(CORPUS_METADATA_PATH, "rb"))
     model = SentenceTransformer('all-MiniLM-L6-v2')
-    return bm25, metadata, faiss_index, sem_metadata, model
+    return faiss_index, model
 
-@st.cache_data
-def get_reviews(asins):
-    if not asins:
-        return {}
-    placeholders = ','.join(['?' for _ in asins])
-    query = f"""
-        SELECT asin, text
-        FROM read_parquet('{PARQUET_PATH}')
-        WHERE asin IN ({placeholders})
-    """
-    return {r[0]: r[1] for r in conn.execute(query, asins).fetchall()}
+@st.cache_resource
+def load_metadata():
+    """Load corpus metadata — ~100MB."""
+    with open(CORPUS_METADATA_PATH, "rb") as f:
+        return pickle.load(f)
+
+@st.cache_resource
+def load_bm25():
+    """Load BM25 index — ~200MB."""
+    from src.bm25 import load_bm25_index
+    bm25, _, _ = load_bm25_index()
+    return bm25
+
+@st.cache_resource
+def load_llm():
+    """Load Groq LLM client — negligible memory, just an API client."""
+    from langchain_groq import ChatGroq
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=os.getenv("GROQ_API_KEY"),
+        temperature=0.1
+    )
 
 # ==============================
-# FEEDBACK STORAGE
+# LOAD ALL RESOURCES
+# ==============================
+faiss_index, embedding_model = load_faiss_and_model()
+metadata = load_metadata()
+bm25 = load_bm25()
+llm = load_llm()
+
+# ==============================
+# SEARCH FUNCTIONS
+# These use the cached resources above instead of reloading
+# ==============================
+from src.bm25 import search_bm25
+from src.semantic import search_semantic
+from src.tools import web_search, should_use_web_search
+
+def do_semantic_search(query, top_k=5):
+    return search_semantic(query, faiss_index, metadata, embedding_model, top_k)
+
+def do_bm25_search(query, top_k=5):
+    return search_bm25(query, bm25, metadata, top_k)
+
+def do_hybrid_search(query, top_k=5):
+    sem_results = do_semantic_search(query, top_k=10)
+    bm25_results = do_bm25_search(query, top_k=10)
+    rrf_scores = {}
+    doc_map = {}
+    for rank, doc in enumerate(sem_results):
+        asin = doc.get("parent_asin", "")
+        rrf_scores[asin] = rrf_scores.get(asin, 0) + 1 / (rank + 1 + 60)
+        doc_map[asin] = doc
+    for rank, doc in enumerate(bm25_results):
+        asin = doc.get("parent_asin", "")
+        rrf_scores[asin] = rrf_scores.get(asin, 0) + 1 / (rank + 1 + 60)
+        doc_map[asin] = doc
+    sorted_asins = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)
+    return [doc_map[asin] for asin in sorted_asins[:top_k]]
+
+# ==============================
+# RAG PIPELINE (inline — avoids importing rag_pipeline.py
+# which would reload indexes a second time)
+# ==============================
+import re
+
+def get_review(parent_asin):
+    sql = "SELECT text FROM read_parquet(?) WHERE asin = ? LIMIT 1"
+    result = conn.execute(sql, [str(PARQUET_PATH), parent_asin]).fetchone()
+    return result[0] if result else "No review found"
+
+def build_context(docs):
+    blocks = []
+    for doc in docs:
+        blocks.append(f"""
+        Product ASIN: {doc.get('parent_asin', 'N/A')}
+        Title: {doc.get('title', 'N/A')}
+        Price: {doc.get('price', 'N/A')}
+        Average Rating: {doc.get('average_rating', 'N/A')} out of 5
+        Number of Reviews: {doc.get('rating_number', 'N/A')}
+        Store: {doc.get('store', 'N/A')}
+        Review: {get_review(doc['parent_asin'])[:200]}
+        """.strip())
+    return "\n\n".join(blocks)
+
+SYSTEM_PROMPT = """
+You are a helpful Amazon shopping assistant.
+Answer using the provided Amazon product information (metadata, descriptions, and customer reviews).
+Do NOT make up information. Keep the answer short and clear (2-4 sentences max).
+Always cite product ASINs when relevant. Output ONLY the final answer.
+"""
+
+def build_prompt(query, context, web_augmented=False):
+    source_instruction = (
+        "Use BOTH the Amazon product information AND the web search results provided."
+        if web_augmented
+        else "Answer using the provided Amazon product information."
+    )
+    return f"{SYSTEM_PROMPT}\n{source_instruction}\n\nProduct Information:\n{context}\n\nQuestion: {query}\n\nFINAL ANSWER:"
+
+def generate_answer(prompt):
+    response = llm.invoke(prompt)
+    answer = response.content.strip()
+    return re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
+
+def run_rag(query, mode="Semantic", top_k=5, use_tools=False):
+    if mode == "Semantic":
+        docs = do_semantic_search(query, top_k)
+    elif mode == "BM25":
+        docs = do_bm25_search(query, top_k)
+    else:
+        docs = do_hybrid_search(query, top_k)
+
+    web_context = ""
+    tool_used = False
+    if use_tools and should_use_web_search(query, docs):
+        web_results = web_search.invoke({"query": query})
+        web_context = f"\n\nWeb Search Results:\n{web_results}"
+        tool_used = True
+
+    context = build_context(docs) + web_context
+    prompt = build_prompt(query, context, web_augmented=tool_used)
+    answer = generate_answer(prompt)
+    return answer, docs, tool_used
+
+# ==============================
+# FEEDBACK
 # ==============================
 def store_feedback(feedback_data):
     if not feedback_data:
@@ -81,31 +201,20 @@ def store_feedback(feedback_data):
     df = pd.DataFrame(feedback_data)
     df["timestamp"] = datetime.now().isoformat()
     file_exists = FEEDBACK_PATH.exists()
-    df.to_csv(
-        FEEDBACK_PATH,
-        mode="a",
-        header=not file_exists,
-        index=False,
-        encoding="utf-8-sig"
-    )
+    df.to_csv(FEEDBACK_PATH, mode="a", header=not file_exists, index=False, encoding="utf-8-sig")
+
+@st.cache_data
+def get_reviews(asins):
+    if not asins:
+        return {}
+    placeholders = ','.join(['?' for _ in asins])
+    query = f"SELECT asin, text FROM read_parquet('{PARQUET_PATH}') WHERE asin IN ({placeholders})"
+    return {r[0]: r[1] for r in conn.execute(query, list(asins)).fetchall()}
 
 # ==============================
-# LOAD MODELS INTO SESSION STATE
-# ==============================
-if 'loaded' not in st.session_state:
-    bm25, metadata, faiss_index, sem_metadata, model = load_models()
-    st.session_state.bm25 = bm25
-    st.session_state.metadata = metadata          # for BM25 search
-    st.session_state.faiss_index = faiss_index
-    st.session_state.sem_metadata = sem_metadata  # for semantic search
-    st.session_state.model = model
-    st.session_state.loaded = True
-
-# ==============================
-# STREAMLIT UI
+# UI
 # ==============================
 st.title("Amazon Beauty Products Assistant")
-
 tab1, tab2 = st.tabs(["🔍 Search", "🧠 RAG"])
 
 # ==============================
@@ -116,27 +225,11 @@ with tab1:
     query = st.text_input("Enter your query:", key="search_query")
 
     if query:
-        if search_mode == "BM25":
-            results = search_bm25(
-                query,
-                st.session_state.bm25,
-                st.session_state.metadata,   # correct: metadata not tokenized_corpus
-                top_k=3
-            )
-        else:
-            results = search_semantic(
-                query,
-                st.session_state.faiss_index,
-                st.session_state.sem_metadata,
-                st.session_state.model,
-                top_k=3
-            )
-
+        results = do_bm25_search(query, top_k=3) if search_mode == "BM25" else do_semantic_search(query, top_k=3)
         st.subheader(f"Top 3 results for '{query}' using {search_mode}")
 
         asins = [r['parent_asin'] for r in results]
-        reviews = get_reviews(asins)
-
+        reviews = get_reviews(tuple(asins))
         feedback_data = []
 
         for idx, result in enumerate(results):
@@ -148,19 +241,9 @@ with tab1:
                 review = reviews.get(result['parent_asin'], "No review found")[:200]
                 st.write(f"**Review:** {review}...")
                 st.write(f"**Retrieval Score:** {result['score']:.4f}")
-
-                feedback = st.radio(
-                    "Helpful?",
-                    ["Not selected", "👍", "👎"],
-                    key=f"feedback_{idx}"
-                )
-
+                feedback = st.radio("Helpful?", ["Not selected", "👍", "👎"], key=f"feedback_{idx}")
                 if feedback in ["👍", "👎"]:
-                    feedback_data.append({
-                        "product_title": result["title"],
-                        "feedback": feedback,
-                        "score": result["score"]
-                    })
+                    feedback_data.append({"product_title": result["title"], "feedback": feedback, "score": result["score"]})
 
         if feedback_data:
             store_feedback(feedback_data)
@@ -170,41 +253,19 @@ with tab1:
 # RAG TAB
 # ==============================
 with tab2:
-    rag_mode = st.radio(
-        "Select RAG Mode",
-        ["BM25", "Semantic", "Hybrid"],
-        key="rag_mode"
-    )
+    rag_mode = st.radio("Select RAG Mode", ["BM25", "Semantic", "Hybrid"], key="rag_mode")
     use_tools = st.checkbox("🔍 Augment with web search (for pricing, availability, certifications, etc.)")
     rag_query = st.text_input("Ask a question:", key="rag_query")
 
     if rag_query:
         with st.spinner("Generating answer..."):
-            if rag_mode == "Hybrid":
-                answer, prompt, docs, tool_used = hybrid_rag_pipeline(
-                    rag_query,
-                    mode="Hybrid",
-                    prompt_version="v1",
-                    top_k=5,
-                    use_tools=use_tools
-                )
-            else:
-                # BM25 or Semantic — use rag_pipeline
-                answer, prompt, docs, tool_used = rag_pipeline(
-                    rag_query,
-                    mode=rag_mode,
-                    prompt_version="v1",
-                    top_k=5,
-                    use_tools=use_tools
-                )
+            answer, docs, tool_used = run_rag(rag_query, mode=rag_mode, top_k=5, use_tools=use_tools)
 
-        # Display answer directly — no wrapper
         st.markdown("## 🧠 Generated Answer")
         if tool_used:
             st.info("ℹ️ Web search was used to supplement Amazon reviews for this query.")
         st.success(answer)
 
-        # Display sources cleanly
         st.markdown("### 📚 Sources")
         for i, doc in enumerate(docs, 1):
             with st.expander(f"[{i}] {doc['title']}"):
