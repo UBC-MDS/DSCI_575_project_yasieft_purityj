@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.loader import download_index_files
 download_index_files()
 
@@ -5,27 +9,25 @@ import streamlit as st
 import pickle
 import duckdb
 import os
-import sys
 import pandas as pd
-from pathlib import Path
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
-
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
-from src.rag_pipeline import rag_pipeline
-from src.hybrid import hybrid_rag_pipeline
 
 # ==============================
 # PATH SETUP
 # ==============================
 REPO_ROOT = Path(__file__).parent.parent
-sys.path.append(str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
+
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+from src.rag_pipeline import rag_pipeline
+from src.hybrid import hybrid_rag_pipeline
 
 conn = duckdb.connect()
 

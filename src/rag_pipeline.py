@@ -1,69 +1,98 @@
-import sys, os
-from pathlib import Path
+# ─────────────────────────────────────────────────────────────
+# rag_pipeline.py
+# Purpose: Base RAG pipeline for single retriever modes
+#          (BM25 or Semantic). Also owns all shared components
+#          (LLM, retrievers, context builder, prompt templates)
+#          that hybrid.py imports from here.
+# ─────────────────────────────────────────────────────────────
+import re
+import sys
+import os
 import pickle
 import duckdb
+from pathlib import Path
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
-from src.tools import web_search, should_use_web_search
-
 # -----------------------------
 # PATH SETUP
 # -----------------------------
 REPO_ROOT = Path(__file__).parent.parent
-sys.path.append(str(REPO_ROOT))
-PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
+#sys.path.append(str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT))
 
+PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+from src.tools import web_search, should_use_web_search
+
 conn = duckdb.connect()
+
 # -----------------------------
-# STEP 1: LLM PIPELINE
+# LLM SETUP
 # -----------------------------
-# USE A LOCAL MODEL
-#llm = pipeline("text-generation", model="Qwen/Qwen3.5-0.8B")
-# def generate_llm_answer(prompt):
-#     output = llm(prompt, max_new_tokens=200)[0]["generated_text"]
-#     answer = output[len(prompt):].strip()
-    
-#     # Remove garbage patterns
-#     if "<think>" in answer:
-#         answer = answer.split("</think>")[-1].strip()
-
-#     if "assistant" in answer:
-#         answer = answer.split("assistant")[-1].strip()
-
-#     # Remove repeated numbering junk
-#     if "1." in answer and "2." in answer:
-#         lines = answer.split("\n")
-#         cleaned = [l for l in lines if len(l.strip()) > 10]
-#         answer = "\n".join(cleaned)
-
-#     return answer.strip()
-
-# Setup Groq 
 load_dotenv()
-llm = ChatGroq(
- model="llama-3.3-70b-versatile",
- api_key=os.getenv("GROQ_API_KEY"),
- temperature=0.1    # low temperature = more focussed, less random answers   
-)
+
+def get_llm(provider="groq", local_model="Qwen/Qwen3.5-0.8B"):
+    """
+    Factory function to get the LLM backend.
+    
+    provider: "groq" (default, cloud-based, fast, no GPU needed)
+              "local" (HuggingFace model, runs on your machine)
+    
+    local_model: only used when provider="local"
+                 any HuggingFace model ID e.g.:
+                 - "Qwen/Qwen3.5-0.8B"      (tiny, laptop-friendly)
+                 - "Qwen/Qwen3.5-2B"         (better quality)
+                 - "meta-llama/Llama-3.2-3B-Instruct"
+    """
+    if provider == "groq":
+        return ChatGroq(
+            model="llama-3.3-70b-versatile",
+            api_key=os.getenv("GROQ_API_KEY"),
+            temperature=0.1
+        )
+    elif provider == "local":
+        return pipeline(
+            "text-generation",
+            model=local_model,
+            max_new_tokens=200
+        )
+    else:
+        raise ValueError(f"Unknown provider: {provider}. Choose 'groq' or 'local'")
+
+
+# Default: Groq — change to "local" here if you want to use a local model
+LLM_PROVIDER = "groq"
+llm = get_llm(provider=LLM_PROVIDER)
+
 
 def generate_llm_answer(prompt):
-    response = llm.invoke(prompt)
-    return response.content.strip()
+    if LLM_PROVIDER == "groq":
+        response = llm.invoke(prompt)
+        answer = response.content.strip()
+    elif LLM_PROVIDER == "local":
+        output = llm(prompt, max_new_tokens=200)[0]["generated_text"]
+        answer = output[len(prompt):].strip()
+        # Clean up local model artifacts
+        if "assistant" in answer:
+            answer = answer.split("assistant")[-1].strip()
+
+    # Strip <think> blocks (some models output these)
+    answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
+    return answer
 
 # -----------------------------
-# LOAD DATA
+# LOAD INDEXES
 # -----------------------------
 faiss_index = load_semantic_index()
 metadata = pickle.load(open(CORPUS_METADATA_PATH, "rb"))
-model = SentenceTransformer('all-MiniLM-L6-v2')  # Load the sentence transformer model
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Load the sentence transformer model
 
 #bm25, tokenized_corpus, _ = load_bm25_index()
 bm25, _, _ = load_bm25_index()
@@ -73,7 +102,7 @@ bm25, _, _ = load_bm25_index()
 # STEP 2.1: RETRIEVERS
 # -----------------------------
 def semantic_retrieve(query, top_k=5):
-    return search_semantic(query, faiss_index, metadata, model, top_k)
+    return search_semantic(query, faiss_index, metadata, embedding_model, top_k)
 
 
 def bm25_retrieve(query, top_k=5):
@@ -84,22 +113,20 @@ def bm25_retrieve(query, top_k=5):
 # STEP 2.2: CONTEXT BUILDER
 # -----------------------------
 def get_review(parent_asin):
-    query = f"""
+    """Fetch one review text for a product from the reviews parquet file."""
+    sql = """
         SELECT text
-        FROM read_parquet('{PARQUET_PATH}')
+        FROM read_parquet(?)
         WHERE asin = ?
         LIMIT 1
     """
-    result = conn.execute(query, [parent_asin]).fetchone()
-
-    if result:
-        return result[0]
-    return "No review found"
+    result = conn.execute(sql, [str(PARQUET_PATH), parent_asin]).fetchone()
+    return result[0] if result else "No review found"
 
 
 def build_context(docs):
+    """Convert retrieved product docs into a structured text block for the LLM."""
     context_blocks = []
-
     for doc in docs:
         block = f"""
         Product ASIN: {doc.get('parent_asin', 'N/A')}
@@ -108,10 +135,9 @@ def build_context(docs):
         Average Rating: {doc.get('average_rating', 'N/A')} out of 5
         Number of Reviews: {doc.get('rating_number', 'N/A')}
         Store: {doc.get('store', 'N/A')}
-        Review: {doc.get('review_text', get_review(doc["parent_asin"])[:200])}
-        """
-        context_blocks.append(block.strip())
-
+        Review: {get_review(doc["parent_asin"])[:200]}
+        """.strip()
+        context_blocks.append(block)
     return "\n\n".join(context_blocks)
 
 
@@ -209,23 +235,17 @@ def rag_pipeline(query, mode="Semantic", prompt_version="v1", top_k=5, use_tools
 
 
 # -----------------------------
-# STEP 5: SIMPLE EVALUATION LOOP
+# STEP 5: EVALUATION LOOP
 # -----------------------------
-def evaluate_queries(queries, mode="hybrid"):
+def evaluate_queries(queries, mode="Semantic"):
+    """Run a list of queries through the RAG pipeline and print results."""
     results = []
-
     for q in queries:
         answer, prompt, docs, tool_used = rag_pipeline(q, mode=mode)
-
         print("\n======================")
         print("QUERY:", q)
         print("ANSWER:", answer[:500])
-
-        results.append({
-            "query": q,
-            "answer": answer
-        })
-
+        results.append({"query": q, "answer": answer})
     return results
 
 
