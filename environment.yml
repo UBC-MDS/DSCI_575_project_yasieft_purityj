@@ -34,3 +34,10 @@ dependencies:
 
     # Utilities
     - tqdm               # progress bars (helpful when encoding 112K products)
+
+    # groq 
+    - langchain-groq
+
+    # tooling 
+    - tavily-python
+    - langchain

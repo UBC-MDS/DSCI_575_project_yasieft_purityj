@@ -71,7 +71,8 @@ def save_bm25_index(bm25, metadata, tokenized_corpus,
     # wb = write binary - pickle always uses binary mode
     print(f"Saving BM25 index to {index_path}...")
     with open(index_path, "wb") as f:
-        pickle.dump({"bm25": bm25, "tokenized_corpus": tokenized_corpus}, f)
+        #pickle.dump({"bm25": bm25, "tokenized_corpus": tokenized_corpus}, f)
+        pickle.dump({"bm25": bm25}, f)  # tokenized_corpus removed to slim indexes 
 
     # Save metadata separately - used by both BM25 and semantic search
     print(f"Saving corpus metadata to {metadata_path}...")
@@ -105,14 +106,14 @@ def load_bm25_index(index_path=BM25_INDEX_PATH,
         saved = pickle.load(f)
 
     bm25 = saved["bm25"]
-    tokenized_corpus = saved["tokenized_corpus"]
+    #tokenized_corpus = saved["tokenized_corpus"]
 
     print(f"Loading corpus metadata from {metadata_path}...")
     with open(metadata_path, "rb") as f:
         metadata = pickle.load(f)
 
     print(f"Loaded index with {len(metadata)} documents")
-    return bm25, metadata, tokenized_corpus
+    return bm25, metadata, [] # empty lists keeps callers from breaking
 
 # ── Search ────────────────────────────────────────────────────
 

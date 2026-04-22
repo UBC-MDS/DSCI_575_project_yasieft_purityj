@@ -1,9 +1,16 @@
+import re
 import sys
-from pathlib import Path
+import os
 import pickle
 import duckdb
-from transformers import pipeline
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+from langchain_groq import ChatGroq
+
+from src.bm25 import load_bm25_index, search_bm25
+from src.semantic import load_semantic_index, search_semantic
+from src.tools import web_search, should_use_web_search
 
 # -----------------------------
 # PATH SETUP
@@ -11,81 +18,83 @@ from sentence_transformers import SentenceTransformer
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.append(str(REPO_ROOT))
 PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
-
 FAISS_INDEX_PATH = REPO_ROOT / "data" / "processed" / "faiss_index.faiss"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 
-# Your existing imports
-from src.bm25 import load_bm25_index, search_bm25
-from src.semantic import load_semantic_index, search_semantic
 conn = duckdb.connect()
+
 # -----------------------------
-# STEP 1: LLM PIPELINE
+# STEP 1: LLM PIPELINE (Groq)
 # -----------------------------
-llm = pipeline("text-generation", model="Qwen/Qwen3.5-0.8B")
+load_dotenv()
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0.1
+)
 
 def generate_llm_answer(prompt):
-    output = llm(prompt, max_new_tokens=200)[0]["generated_text"]
-    answer = output[len(prompt):].strip()
-    
-    # Remove garbage patterns
-    if "<think>" in answer:
-        answer = answer.split("</think>")[-1].strip()
+    response = llm.invoke(prompt)
+    answer = response.content.strip()
+    # Robustly strip any <think>...</think> blocks
+    answer = re.sub(r'<think>.*?</think>', '', answer, flags=re.DOTALL).strip()
+    return answer
 
-    if "assistant" in answer:
-        answer = answer.split("assistant")[-1].strip()
-
-    # Remove repeated numbering junk
-    if "1." in answer and "2." in answer:
-        lines = answer.split("\n")
-        cleaned = [l for l in lines if len(l.strip()) > 10]
-        answer = "\n".join(cleaned)
-
-    return answer.strip()
- 
 
 # -----------------------------
 # LOAD DATA
 # -----------------------------
 faiss_index = load_semantic_index()
 metadata = pickle.load(open(CORPUS_METADATA_PATH, "rb"))
-model = SentenceTransformer('all-MiniLM-L6-v2')  # Load the sentence transformer model
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-bm25, tokenized_corpus, _ = load_bm25_index()
+# Fix: unpack correctly — metadata is position 1, not tokenized_corpus
+#bm25, _, tokenized_corpus = load_bm25_index()
+bm25, _, _ = load_bm25_index()
+
 
 # -----------------------------
-# STEP 2.1: RETRIEVERS
+# RETRIEVERS
 # -----------------------------
 def semantic_retrieve(query, top_k=5):
     return search_semantic(query, faiss_index, metadata, model, top_k)
 
 
 def bm25_retrieve(query, top_k=5):
-    return search_bm25(query, bm25, tokenized_corpus, top_k)
+    # Fix: pass metadata not tokenized_corpus
+    return search_bm25(query, bm25, metadata, top_k)
 
 
 # -----------------------------
-# STEP 3: HYBRID RETRIEVER
+# HYBRID RETRIEVER
 # -----------------------------
 def hybrid_retrieve(query, top_k=5):
-    sem_results = semantic_retrieve(query, top_k)
-    bm25_results = bm25_retrieve(query, top_k)
+    # Get more candidates from each retriever
+    sem_results = semantic_retrieve(query, top_k=10)
+    bm25_results = bm25_retrieve(query, top_k=10)
 
-    # Merge + deduplicate (by unique id or text)
-    seen = set()
-    combined = []
+    # Reciprocal Rank Fusion
+    rrf_scores = {}
+    doc_map = {}
 
-    for doc in sem_results + bm25_results:
-        text = doc.get("title", "")
-        if text not in seen:
-            seen.add(text)
-            combined.append(doc)
+    for rank, doc in enumerate(sem_results):
+        asin = doc.get("parent_asin", "")
+        rrf_scores[asin] = rrf_scores.get(asin, 0) + 1 / (rank + 1 + 60)
+        doc_map[asin] = doc
 
-    return combined[:top_k]
+    for rank, doc in enumerate(bm25_results):
+        asin = doc.get("parent_asin", "")
+        rrf_scores[asin] = rrf_scores.get(asin, 0) + 1 / (rank + 1 + 60)
+        doc_map[asin] = doc
+
+    # Sort by RRF score descending
+    sorted_asins = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)
+
+    return [doc_map[asin] for asin in sorted_asins[:top_k]]
 
 
 # -----------------------------
-# STEP 2.2: CONTEXT BUILDER
+# CONTEXT BUILDER
 # -----------------------------
 def get_review(parent_asin):
     query = f"""
@@ -95,32 +104,28 @@ def get_review(parent_asin):
         LIMIT 1
     """
     result = conn.execute(query, [parent_asin]).fetchone()
-
-    if result:
-        return result[0]
-    return "No review found"
+    return result[0] if result else "No review found"
 
 
 def build_context(docs):
     context_blocks = []
-
     for doc in docs:
         block = f"""
         Product ASIN: {doc.get('parent_asin', 'N/A')}
         Title: {doc.get('title', 'N/A')}
-        Rating: {doc.get('score', 'N/A')}
+        Price: {doc.get('price', 'N/A')}
+        Average Rating: {doc.get('average_rating', 'N/A')} out of 5
+        Number of Reviews: {doc.get('rating_number', 'N/A')}
+        Store: {doc.get('store', 'N/A')}
         Review: {doc.get('review_text', get_review(doc["parent_asin"])[:200])}
-        """
-        context_blocks.append(block.strip())
-
+        """.strip()
+        context_blocks.append(block)
     return "\n\n".join(context_blocks)
 
 
 # -----------------------------
-# STEP 2.3: PROMPT TEMPLATES
+# PROMPT TEMPLATES
 # -----------------------------
-
-# Variant 1 (strict grounding)
 SYSTEM_PROMPT_V1 = """
 You are a helpful Amazon shopping assistant.
 
@@ -130,7 +135,7 @@ STRICT RULES:
 - Do NOT repeat the question or instructions
 - Do NOT output words like "assistant" or tags like "<think>"
 - Do NOT generate numbered lists (1, 2, 3, etc.)
-- Keep the answer short and clear (2–4 sentences max)
+- Keep the answer short and clear (2-4 sentences max)
 - Always cite product ASINs when relevant
 
 Output ONLY the final answer. No extra text.
@@ -155,13 +160,21 @@ Output ONLY the final answer. No explanations.
 """
 
 
-def build_prompt(query, context, version="v1"):
+def build_prompt(query, context, version="v1", web_augmented=False):
     system_prompt = SYSTEM_PROMPT_V1 if version == "v1" else SYSTEM_PROMPT_V2
+
+    source_instruction = (
+        "Use BOTH the Amazon product information AND the web search results provided."
+        if web_augmented
+        else "Answer using the provided Amazon product information (metadata, descriptions, and customer reviews)."
+    )
 
     return f"""
     {system_prompt}
 
-    Customer Reviews Are:
+    {source_instruction}
+
+    Product Information and Context:
     {context}
 
     Question is: {query}
@@ -171,47 +184,43 @@ def build_prompt(query, context, version="v1"):
 
 
 # -----------------------------
-# STEP 2.4: RAG PIPELINE
+# HYBRID RAG PIPELINE
 # -----------------------------
-def hybrid_rag_pipeline(query, mode="Hybrid", prompt_version="v1", top_k=5):
+def hybrid_rag_pipeline(query, mode="Hybrid", prompt_version="v1", top_k=5, use_tools=False):
+    # 1. Retrieval
+    docs = hybrid_retrieve(query, top_k)
 
-    docs = []
+    # 2. Tool augmentation 
+    web_context = ""
+    tool_used = False
+    if use_tools and should_use_web_search(query, docs):
+        web_results = web_search.invoke({"query": query})
+        web_context = f"\n\nWeb Search Results:\n{web_results}"
+        tool_used = True
 
-    if mode == "Hybrid":
-        docs = hybrid_retrieve(query, top_k)
-    else:
-        raise ValueError("Invalid mode")
+    # 3. Context
+    context = build_context(docs) + web_context
 
-    # 2. Context
-    context = build_context(docs)
+    # 4. Prompt
+    prompt = build_prompt(query, context, version=prompt_version, web_augmented=tool_used)
 
-    # 3. Prompt
-    prompt = build_prompt(query, context, version=prompt_version)
-
-    # 4. LLM
+    # 5. LLM
     answer = generate_llm_answer(prompt)
 
-    return answer, prompt, docs
+    return answer, prompt, docs, tool_used
 
 
 # -----------------------------
-# STEP 5: SIMPLE EVALUATION LOOP
+# EVALUATION LOOP
 # -----------------------------
-def evaluate_queries(queries, mode="hybrid"):
+def evaluate_queries(queries):
     results = []
-
     for q in queries:
-        answer, prompt, docs = hybrid_rag_pipeline(q, mode=mode)
-
+        answer, prompt, docs, tool_used = hybrid_rag_pipeline(q)
         print("\n======================")
         print("QUERY:", q)
         print("ANSWER:", answer[:500])
-
-        results.append({
-            "query": q,
-            "answer": answer
-        })
-
+        results.append({"query": q, "answer": answer})
     return results
 
 
@@ -219,17 +228,14 @@ def evaluate_queries(queries, mode="hybrid"):
 # MAIN TEST
 # -----------------------------
 if __name__ == "__main__":
+    test_queries = [
+        "What are the best moisturizers for dry skin?",
+        "Something to keep my face hydrated all day",
+        "Product for dark spots and uneven skin tone"
+    ]
 
-    query = "What are the best moisturizers for dry skin?"
-
-    # Change mode: "semantic", "bm25", "hybrid"
-    answer, prompt, docs = hybrid_rag_pipeline(query, mode="Hybrid", prompt_version="v1")
-
-    print("\n=== FINAL ANSWER ===\n")
-    print(answer)
-
-    # print("\n=== RETRIEVED DOCS ===\n")
-    # for i, doc in enumerate(docs):
-    #     print(f"{i+1}. {doc.get('title', 'N/A')} | Rating: {doc.get('score', 'N/A')}")
-
-
+    for query in test_queries:
+        print(f"\n{'='*50}")
+        print(f"QUERY: {query}")
+        answer, prompt, docs, tool_used = hybrid_rag_pipeline(query)
+        print(f"ANSWER: {answer}")
