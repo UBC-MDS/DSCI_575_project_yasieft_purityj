@@ -20,6 +20,8 @@ def download_index_files(local_dir="data/processed"):
     # app.py already set this from st.secrets or .env
     hf_token = os.getenv("HF_TOKEN")
 
+    print("Starting index file downloads...")
+
     for filename in FILES_TO_DOWNLOAD:
         local_path = local_dir / filename
         if not local_path.exists():
