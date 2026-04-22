@@ -32,12 +32,11 @@ with st.spinner("⏳ Checking index files..."):
     download_index_files()
 
 # ==============================
-# IMPORTS (after secrets and downloads)
+# IMPORTS
 # ==============================
+import re
 import pickle
-import duckdb
 import pandas as pd
-from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -48,18 +47,12 @@ PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
 CORPUS_METADATA_PATH = REPO_ROOT / "data" / "processed" / "corpus_metadata.pkl"
 FEEDBACK_PATH = REPO_ROOT / "data" / "processed" / "feedback.csv"
 
-conn = duckdb.connect()
-
 # ==============================
 # CACHED RESOURCE LOADERS
-# These load ONCE and are shared across all sessions.
-# This prevents the double-loading problem where rag_pipeline.py
-# and app.py were each loading the same indexes into memory.
 # ==============================
 
 @st.cache_resource
 def load_faiss_and_model():
-    """Load FAISS index + embedding model — ~260MB total."""
     from sentence_transformers import SentenceTransformer
     from src.semantic import load_semantic_index
     faiss_index = load_semantic_index()
@@ -68,20 +61,17 @@ def load_faiss_and_model():
 
 @st.cache_resource
 def load_metadata():
-    """Load corpus metadata — ~100MB."""
     with open(CORPUS_METADATA_PATH, "rb") as f:
         return pickle.load(f)
 
 @st.cache_resource
 def load_bm25():
-    """Load BM25 index — ~200MB."""
     from src.bm25 import load_bm25_index
     bm25, _, _ = load_bm25_index()
     return bm25
 
 @st.cache_resource
 def load_llm():
-    """Load Groq LLM client — negligible memory, just an API client."""
     from langchain_groq import ChatGroq
     return ChatGroq(
         model="llama-3.3-70b-versatile",
@@ -89,17 +79,34 @@ def load_llm():
         temperature=0.1
     )
 
+@st.cache_resource
+def load_review_lookup():
+    """
+    Load asin→review snippet lookup at startup.
+    Replaces per-query parquet scans with a simple dict lookup.
+    Only stores first 200 chars per review to keep memory low.
+    """
+    import duckdb
+    conn = duckdb.connect()
+    result = conn.execute(f"""
+        SELECT asin, LEFT(text, 200) as snippet
+        FROM read_parquet('{PARQUET_PATH}')
+        WHERE text IS NOT NULL
+    """).fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in result}
+
 # ==============================
-# LOAD ALL RESOURCES
+# LOAD ALL RESOURCES AT STARTUP
 # ==============================
 faiss_index, embedding_model = load_faiss_and_model()
 metadata = load_metadata()
 bm25 = load_bm25()
 llm = load_llm()
+review_lookup = load_review_lookup()
 
 # ==============================
 # SEARCH FUNCTIONS
-# These use the cached resources above instead of reloading
 # ==============================
 from src.bm25 import search_bm25
 from src.semantic import search_semantic
@@ -128,19 +135,17 @@ def do_hybrid_search(query, top_k=5):
     return [doc_map[asin] for asin in sorted_asins[:top_k]]
 
 # ==============================
-# RAG PIPELINE (inline — avoids importing rag_pipeline.py
-# which would reload indexes a second time)
+# RAG PIPELINE
 # ==============================
-import re
 
 def get_review(parent_asin):
-    sql = "SELECT text FROM read_parquet(?) WHERE asin = ? LIMIT 1"
-    result = conn.execute(sql, [str(PARQUET_PATH), parent_asin]).fetchone()
-    return result[0] if result else "No review found"
+    """Dict lookup — replaces expensive per-query parquet scans."""
+    return review_lookup.get(parent_asin, "No review found")
 
 def build_context(docs):
+    """Use top 3 docs only to keep prompt size and memory usage down."""
     blocks = []
-    for doc in docs:
+    for doc in docs[:3]:
         blocks.append(f"""
         Product ASIN: {doc.get('parent_asin', 'N/A')}
         Title: {doc.get('title', 'N/A')}
@@ -148,7 +153,7 @@ def build_context(docs):
         Average Rating: {doc.get('average_rating', 'N/A')} out of 5
         Number of Reviews: {doc.get('rating_number', 'N/A')}
         Store: {doc.get('store', 'N/A')}
-        Review: {get_review(doc['parent_asin'])[:200]}
+        Review: {get_review(doc['parent_asin'])[:150]}
         """.strip())
     return "\n\n".join(blocks)
 
@@ -205,11 +210,16 @@ def store_feedback(feedback_data):
 
 @st.cache_data
 def get_reviews(asins):
+    """Open and close DuckDB connection locally to avoid holding memory."""
     if not asins:
         return {}
+    import duckdb
+    conn = duckdb.connect()
     placeholders = ','.join(['?' for _ in asins])
     query = f"SELECT asin, text FROM read_parquet('{PARQUET_PATH}') WHERE asin IN ({placeholders})"
-    return {r[0]: r[1] for r in conn.execute(query, list(asins)).fetchall()}
+    result = {r[0]: r[1] for r in conn.execute(query, list(asins)).fetchall()}
+    conn.close()
+    return result
 
 # ==============================
 # UI
@@ -243,7 +253,11 @@ with tab1:
                 st.write(f"**Retrieval Score:** {result['score']:.4f}")
                 feedback = st.radio("Helpful?", ["Not selected", "👍", "👎"], key=f"feedback_{idx}")
                 if feedback in ["👍", "👎"]:
-                    feedback_data.append({"product_title": result["title"], "feedback": feedback, "score": result["score"]})
+                    feedback_data.append({
+                        "product_title": result["title"],
+                        "feedback": feedback,
+                        "score": result["score"]
+                    })
 
         if feedback_data:
             store_feedback(feedback_data)
