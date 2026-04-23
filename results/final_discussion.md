@@ -155,7 +155,7 @@ The keyword `cruelty-free` triggered web search. The static corpus contains no c
 Generated answer:
 > No, CeraVe is not cruelty-free because it sells in markets that require animal testing by law, despite stating that its products are not tested on animals. This information is relevant to products like CeraVe Hydrating Oil Cleanser (ASIN: B09CCJD53W) and CeraVe Moisturizing Cream (ASIN: B07SZHBDNJ). For cruelty-free options, consider brands like COLOR CLEANER (ASIN: B01M1RYC9M).
 
-Web sources returned: ireadlabelsforyou.com, Treehugger, Amazon Q&A. The answer correctly surfaced nuance (sells in China where animal testing may be required) that the review corpus alone could not provide.
+Web sources returned: [ireadlabelsforyou.com](https://ireadlabelsforyou.com/is-cerave-cruelty-free/), [Treehugger](https://www.treehugger.com/cerave-cruelty-free-vegan-5213848), [Amazon Q&A](https://www.amazon.com/ask/questions/Tx114B1XVUZ861Q/). The answer correctly surfaced nuance (sells in China where animal testing may be required) that the review corpus alone could not provide.
 
 ---
 
