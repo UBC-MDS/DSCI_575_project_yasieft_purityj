@@ -69,10 +69,18 @@ def get_llm(provider="groq", local_model="Qwen/Qwen3.5-0.8B"):
 
 # Default: Groq — change to "local" here if you want to use a local model
 LLM_PROVIDER = "groq"
-llm = get_llm(provider=LLM_PROVIDER)
+#llm = get_llm(provider=LLM_PROVIDER)
+llm = None   #not initialized at import time
 
+def get_llm_instance():
+    """Return the LLM instance, initializing it on first call."""
+    global _llm
+    if _llm is None:
+        _llm = get_llm(provider=LLM_PROVIDER)
+    return _llm
 
 def generate_llm_answer(prompt):
+    """Generate an answer using the configured LLM backend."""
     if LLM_PROVIDER == "groq":
         response = llm.invoke(prompt)
         answer = response.content.strip()

@@ -5,6 +5,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import os
 import streamlit as st
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ==============================
 # PAGE CONFIG — must be first st call
 # ==============================
@@ -38,9 +42,9 @@ import re
 import pickle
 import pandas as pd
 from datetime import datetime
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 REPO_ROOT = Path(__file__).parent.parent
 PARQUET_PATH = REPO_ROOT / "data" / "processed" / "All_Beauty.parquet"
@@ -187,15 +191,28 @@ def run_rag(query, mode="Semantic", top_k=5, use_tools=False):
 
     web_context = ""
     tool_used = False
+    web_sources = []
+
     if use_tools and should_use_web_search(query, docs):
-        web_results = web_search.invoke({"query": query})
-        web_context = f"\n\nWeb Search Results:\n{web_results}"
-        tool_used = True
+        api_key = os.getenv("TAVILY_API_KEY")
+        if api_key:
+            from tavily import TavilyClient
+            client = TavilyClient(api_key=api_key)
+            results = client.search(f"{query} Amazon beauty product", max_results=3)
+            web_sources = [
+                {"title": r.get("title", "Web result"), "url": r.get("url", ""), "content": r.get("content", "")}
+                for r in results.get("results", [])
+            ]
+            web_context = "\n\n".join(
+                f"{s['content']}\nSource: {s['url']}" for s in web_sources
+            )
+            web_context = f"\n\nWeb Search Results:\n{web_context}"
+            tool_used = True
 
     context = build_context(docs) + web_context
     prompt = build_prompt(query, context, web_augmented=tool_used)
     answer = generate_answer(prompt)
-    return answer, docs, tool_used
+    return answer, docs, tool_used, web_sources
 
 # ==============================
 # FEEDBACK
@@ -273,14 +290,24 @@ with tab2:
 
     if rag_query:
         with st.spinner("Generating answer..."):
-            answer, docs, tool_used = run_rag(rag_query, mode=rag_mode, top_k=5, use_tools=use_tools)
+            #answer, docs, tool_used = run_rag(rag_query, mode=rag_mode, top_k=5, use_tools=use_tools)
+            answer, docs, tool_used, web_sources = run_rag(
+            rag_query, mode=rag_mode, top_k=5, use_tools=use_tools
+        )
 
         st.markdown("## 🧠 Generated Answer")
         if tool_used:
             st.info("ℹ️ Web search was used to supplement Amazon reviews for this query.")
         st.success(answer)
 
-        st.markdown("### 📚 Sources")
+        # Web sources
+        if web_sources:
+            st.markdown("### 🌐 Web Sources")
+            for s in web_sources:
+                st.markdown(f"- [{s['title']}]({s['url']})")
+
+        # Product sources
+        st.markdown("### 📚 Product Sources")
         for i, doc in enumerate(docs, 1):
             with st.expander(f"[{i}] {doc['title']}"):
                 st.write(f"**ASIN:** {doc.get('parent_asin', 'N/A')}")

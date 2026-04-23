@@ -12,7 +12,7 @@ from tavily import TavilyClient
 
 load_dotenv()
 
-tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+#tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 @tool
 def web_search(query: str, max_results: int = 3) -> str:
@@ -30,15 +30,26 @@ def web_search(query: str, max_results: int = 3) -> str:
     Returns:
         Concatenated text snippets from top web results
     """
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return "Web search unavailable: TAVILY_API_KEY not set."
+    
+    tavily_client = TavilyClient(api_key=api_key)
     # Scope the search to beauty/Amazon context
     scoped_query = f"{query} Amazon beauty product"
 
     try:
         results = tavily_client.search(scoped_query, max_results=max_results)
-        snippets = [r["content"] for r in results.get("results", [])]
+        snippets = []
+        for r in results.get("results", []):
+            snippet = r["content"]
+            url = r.get("url", "")
+            if url:
+                snippet += f"\nSource: {url}"
+            snippets.append(snippet)
         return "\n\n".join(snippets) if snippets else "No results found."
     except Exception as e:
-        return f"Web searcg failed: {str(e)}"
+        return f"Web search failed: {str(e)}"
 
 TOOL_TRIGGER_KEYWORDS = {
     # Price / availability

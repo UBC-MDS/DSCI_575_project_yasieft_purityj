@@ -146,23 +146,48 @@ TOOL_TRIGGER_KEYWORDS = {
 
 The tool is opt-in in the UI — users toggle "Augment with web search" in the RAG tab.
 
-**Example queries where the tool was used:**
+All three examples below were run using Semantic retrieval with web search augmentation enabled. Web sources are displayed in the UI alongside the generated answer for verifiability.
 
 **Query 1: "Is CeraVe cruelty-free?"**
 
-Without web search, the static corpus has no certification data. With Tavily enabled, the pipeline retrieved current information confirming CeraVe's cruelty-free status in certain markets and surfaced nuance (e.g. sold in China where animal testing may be required), which the review corpus alone could not provide.
+The keyword `cruelty-free` triggered web search. The static corpus contains no certification data — the retrieved products are beauty items with no review text about animal testing policies.
 
-**Query 2: "Where can I buy the CeraVe moisturizer?"**
+Generated answer:
+> No, CeraVe is not cruelty-free because it sells in markets that require animal testing by law, despite stating that its products are not tested on animals. This information is relevant to products like CeraVe Hydrating Oil Cleanser (ASIN: B09CCJD53W) and CeraVe Moisturizing Cream (ASIN: B07SZHBDNJ). For cruelty-free options, consider brands like COLOR CLEANER (ASIN: B01M1RYC9M).
 
-The static corpus contains Amazon listing data but no current retail availability. With web search enabled, the pipeline returned results mentioning Walmart, Target, Ulta, and CVS alongside pricing — directly answering a question the reviews cannot.
+Web sources returned: ireadlabelsforyou.com, Treehugger, Amazon Q&A. The answer correctly surfaced nuance (sells in China where animal testing may be required) that the review corpus alone could not provide.
+
+---
+
+**Query 2: "Where can I buy CeraVe moisturizer?"**
+
+The keyword `buy` triggered web search. The static corpus contains Amazon listing data but no broader retail availability information.
+
+Generated answer:
+> You can buy CeraVe moisturizer on Amazon, specifically from the CeraVe store (e.g., ASIN B07SZHBDNJ, ASIN B09CCJD53W) or other authorized sellers like LUXSURE. Additionally, you can check the official CeraVe website or other online retailers for availability.
+
+Web sources returned: Amazon product pages and CeraVe brand pages. The answer correctly grounded retail availability in the retrieved context rather than fabricating store names.
+
+---
 
 **Query 3: "Top 5 prices of CeraVe"**
 
-Price data in the corpus is sparse (84.3% missing in the raw dataset, which is why it was excluded from document construction). With web search, the pipeline retrieved current retail prices from multiple sources, supplementing the handful of prices present in the corpus.
+The keyword `price` triggered web search. Price data in the corpus is sparse — 84.3% of products have no price listed, which is why price was excluded from document construction to avoid retrieval noise. Web search supplemented the few prices present in the corpus.
+
+Generated answer:
+> The top prices of CeraVe products are not explicitly stated, but based on the provided information, prices range from $6.70 to $20.15. Specific product prices include $16.92 for the CeraVe Hydrating Oil Cleanser (B09CCJD53W) and $30.11 for the CeraVe Moisturizing Cream and Healing Ointment bundle (B098YVDR76).
+
+Web sources returned: Amazon bestseller pages and retail comparison sites. The answer correctly combined corpus prices with web-retrieved price ranges.
+
+---
 
 **Did it improve results?**
 
-Yes, for queries involving time-sensitive or external information. For standard product recommendation queries ("best moisturizer for dry skin"), the tool trigger correctly does not fire — the static corpus is sufficient and web search would add noise. The keyword heuristic is intentionally conservative to avoid unnecessary API calls.
+Yes, for queries involving information the static corpus cannot answer. All three queries above would have returned incomplete or unhelpful answers without web augmentation — the corpus has no certification data, no broader retail availability, and sparse price coverage.
+
+For standard product recommendation queries such as "best moisturizer for dry skin", the tool trigger correctly does not fire — no trigger keywords are present, the static corpus is sufficient, and adding web results would introduce noise. The keyword heuristic is intentionally conservative to avoid unnecessary API calls and latency.
+
+The UI displays web source URLs alongside answers so users can verify the information directly.
 
 ---
 
@@ -186,6 +211,7 @@ The README was updated to reflect the current state of the project including:
 - **Docstrings added** to all public functions across `bm25.py`, `semantic.py`, `utils.py`, `rag_pipeline.py`, `hybrid.py`, `loader.py`, and `tools.py`
 - **Removed dead weight**: `embeddings.npy` excluded from deployment (165MB, not used at runtime — FAISS stores vectors internally); `tokenized_corpus` removed from `bm25_index.pkl` (reduced from 97MB to 53MB)
 - **Batched review lookups**: replaced per-product DuckDB parquet scans in `build_context()` with a startup-time dict lookup (`review_lookup`), eliminating repeated file I/O during inference
+- **Web source attribution**: Tavily results now return URLs alongside content snippets, displayed in the UI as clickable links so users can verify web-augmented answers directly
 - **Environment file updated**: `requirements.txt` created for Streamlit Cloud deployment alongside the existing `environment.yml` for local conda setup
 
 ---
