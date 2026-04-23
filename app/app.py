@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import torch
 import os
 import streamlit as st
 
@@ -60,7 +61,8 @@ def load_faiss_and_model():
     from sentence_transformers import SentenceTransformer
     from src.semantic import load_semantic_index
     faiss_index = load_semantic_index()
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
     return faiss_index, model
 
 @st.cache_resource
@@ -265,8 +267,13 @@ with tab1:
                 st.write(f"**Average Rating:** {result.get('average_rating', 'N/A')} / 5")
                 st.write(f"**Number of Reviews:** {result.get('rating_number', 'N/A')}")
                 st.write(f"**Store:** {result.get('store', 'N/A')}")
-                review = reviews.get(result['parent_asin'], "No review found")[:200]
-                st.write(f"**Review:** {review}...")
+                full_review = reviews.get(result['parent_asin'], "No review found")
+                if len(full_review) > 200:
+                    st.write(f"**Review:** {full_review[:200]}...")
+                    with st.expander("Show full review"):
+                        st.write(full_review)
+                else:
+                    st.write(f"**Review:** {full_review}")
                 st.write(f"**Retrieval Score:** {result['score']:.4f}")
                 feedback = st.radio("Helpful?", ["Not selected", "👍", "👎"], key=f"feedback_{idx}")
                 if feedback in ["👍", "👎"]:

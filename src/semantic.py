@@ -4,6 +4,7 @@
 #          using sentence embeddings and FAISS vector similarity.
 # ─────────────────────────────────────────────────────────────
 
+import torch
 import numpy as np
 import faiss
 import pickle
@@ -191,7 +192,8 @@ if __name__ == "__main__":
     # Step 2: load embedding model
     # downloads ~90MB model on first run, cached after that
     print(f"\n=== Loading embedding model: {MODEL_NAME} ===")
-    model = SentenceTransformer(MODEL_NAME)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = SentenceTransformer(MODEL_NAME, device=device)
 
     # Step 3: encode all documents into vectors
     print("\n=== Encoding documents ===")
