@@ -1,6 +1,6 @@
 # Final Discussion
 
-## Step 1: Improve Your Workflow
+## Step 1: Improve Workflow
 
 ### Dataset Scaling
 
