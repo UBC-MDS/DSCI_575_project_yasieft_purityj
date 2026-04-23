@@ -1,24 +1,23 @@
-# Amazon Assistant
-### A Smart Product Search System for Amazon Beauty Products
+# Amazon Beauty Assistant
+### A Smart Product Search and Recommendation System
 
 > **DSCI 575 Project** | University of British Columbia Master of Data Science  
 > Built by: Yasaman Eftekharypour and Purity Jangaya
 
 ---
 
-Amazon Assistant is a context-aware product search system that retrieves 
-relevant Amazon beauty products from natural language queries.
+🚀 **Live App**: [https://beutyfinder-ai.streamlit.app](https://beutyfinder-ai.streamlit.app)
+
+---
+
+Amazon Beauty Assistant is a context-aware product search and recommendation system that retrieves relevant Amazon beauty products from natural language queries and generates grounded answers using a large language model.
 
 Example queries:
 
 - *"gentle cleanser for sensitive skin"*
 - *"something to keep my face hydrated all day"*
-- *"CeraVe moisturizer"*
-
-The system uses two complementary retrieval approaches:
-
-- **BM25** — keyword-based search, great for exact terms and brand names
-- **Semantic Search** — meaning-based search, great for descriptive queries
+- *"Is CeraVe cruelty-free?"*
+- *"affordable anti-aging serum under $20"*
 
 ---
 
@@ -26,19 +25,39 @@ The system uses two complementary retrieval approaches:
 
 | Milestone | Focus | Status |
 |---|---|---|
-| Milestone 1 | Retrieval (BM25 + Semantic) | ✅ In Progress |
-| Milestone 2 | RAG + Tool Integration | 🔜 Upcoming |
-| Final | Guardrails + Polish | 🔜 Upcoming |
+| Milestone 1 | Retrieval (BM25 + Semantic) | ✅ Complete |
+| Milestone 2 | RAG + LLM Integration | ✅ Complete |
+| Final | Hybrid Retrieval, Tool Use, Deployment | ✅ Complete |
 
 ---
 
-## Quick Start (Just want to run the app?)
+## Features
+
+- **BM25 keyword search** — exact term and brand name matching
+- **Semantic search** — meaning-based retrieval using `all-MiniLM-L6-v2` embeddings and FAISS
+- **Hybrid retrieval** — combines BM25 and semantic search via Reciprocal Rank Fusion (RRF)
+- **RAG pipeline** — retrieves top products and generates grounded answers using Llama 3.3 70B via Groq
+- **Web search tool** — augments answers with live web results for pricing, availability, and certifications via Tavily
+- **User feedback** — thumbs up/down feedback stored per query result
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
 - [Anaconda](https://www.anaconda.com/) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
-- ~2GB free disk space (for data and indexes)
-- Internet connection (for initial data download)
+- ~2GB free disk space
+- Internet connection (for data download and API calls)
+
+There are two setup paths depending on how much time you have:
+
+| Path | Time | When to use |
+|---|---|---|
+| **Fast** — download pre-built indexes | ~5 min | Just want to run the app |
+| **Full pipeline** — build from scratch | ~25 min | Reproducing the full pipeline |
+
+---
 
 ### 1. Clone the repository
 
@@ -49,32 +68,67 @@ cd DSCI_575_project_yasieft_purityj
 
 ### 2. Set up environment
 
-#### for windows users
-- create the environment: conda env create -f environment.yml
-
-#### for limux-based systems
-
+**macOS / Linux (conda):**
 ```bash
 make setup
 conda activate 575_project
 ```
 
-### 3. Configure API keys (optional)
+**Windows (conda):**
+```bash
+conda env create -f environment.yml
+conda activate 575_project
+```
 
-Create a `.env` file in the repo root.
-Get a free HuggingFace token at: https://huggingface.co/settings/tokens and put here.
-HF_TOKEN=your_huggingface_token_here
+**Any platform (pip):**
+```bash
+make install
+# or: pip install -r requirements.txt
+```
 
-### 4. Download data and build indexes
+### 3. Configure API keys
+
+Create a `.env` file in the repo root:
+
+```bash
+HF_TOKEN=your_huggingface_token       # https://huggingface.co/settings/tokens
+GROQ_API_KEY=your_groq_api_key        # https://console.groq.com
+TAVILY_API_KEY=your_tavily_api_key    # https://tavily.com (optional, for web search)
+```
+
+- `HF_TOKEN` — required to download index files from Hugging Face at startup
+- `GROQ_API_KEY` — required for LLM answer generation
+- `TAVILY_API_KEY` — optional, only needed if using the web search augmentation feature
+
+### 4a. Fast path — download pre-built indexes (recommended)
+
+Downloads the pre-built BM25, FAISS, and metadata files directly from HuggingFace. Requires `HF_TOKEN`.
+
+```bash
+make download
+```
+
+### 4b. Full pipeline — build from scratch
+
+Downloads raw data from HuggingFace and builds all indexes locally.
 
 ```bash
 make all
 ```
 
-> ⚠️ First run takes ~25 minutes total:
+> ⚠️ First run takes ~25 minutes:
 > - Data download: ~5 minutes
-> - BM25 index: ~10 seconds  
-> - Semantic index: ~20 minutes (run once, saved to disk)
+> - BM25 index build: ~10 seconds
+> - Semantic index build: ~20 minutes (run once, saved to disk)
+
+You can also run steps individually:
+
+```bash
+make data       # download and convert raw data only
+make bm25       # build BM25 index only
+make semantic   # build FAISS index only
+make indexes    # build both indexes (skips data download)
+```
 
 ### 5. Launch the app
 
@@ -82,115 +136,57 @@ make all
 make app
 ```
 
-## Demo
+The app runs at [http://localhost:8501](http://localhost:8501).
 
-![Demo](demo_rag.gif)
+### Other useful commands
+
+```bash
+make experiment   # run LLM comparison experiment (requires GROQ_API_KEY)
+make clean        # remove processed indexes (keeps raw data)
+make clean-raw    # remove raw downloaded data only
+make clean-all    # remove everything and start fresh
+make update-env   # update conda environment after environment.yml changes
+```
 
 ---
 
-## Developers
-
-Follow these steps to reproduce the entire pipeline from scratch.
-
-### Repository Structure
+## Repository Structure
 
 ```
-
 DSCI_575_project_yasieft_purityj/
 │
-├── README.md                        
-├── Makefile                         
-├── environment.yml                  
-├── .env                             # never commit
+├── README.md
+├── Makefile
+├── environment.yml
+├── requirements.txt
+├── .env                              # never commit
 │
 ├── data/
-│   ├── raw/                         # gitignored
-│   └── processed/                   # gitignored
+│   ├── raw/                          # gitignored
+│   └── processed/                    # gitignored
 │
 ├── notebooks/
-│   └── milestone1_exploration.ipynb
-│   └── milestone2_rag.ipynb 
+│   ├── milestone1_exploration.ipynb
+│   └── milestone2_rag.ipynb
 │
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py               
-│   ├── utils.py                     
-│   ├── bm25.py                      
-│   └── semantic.py
-│   └── hybrid.py
-│   └── rag_pipeline.py                 
+│   ├── data_loader.py                # downloads and converts raw data
+│   ├── utils.py                      # document construction and tokenization
+│   ├── bm25.py                       # BM25 index build, save, load, search
+│   ├── semantic.py                   # FAISS index build, save, load, search
+│   ├── hybrid.py                     # RRF hybrid retriever and pipeline
+│   ├── rag_pipeline.py               # base RAG pipeline (BM25 + Semantic modes)
+│   ├── tools.py                      # Tavily web search tool
+│   └── loader.py                     # downloads index files from Hugging Face
 │
 ├── results/
-│   └── milestone1_discussion.md
-│   └── milestone2_discussion.md     
+│   ├── milestone1_discussion.md
+│   ├── milestone2_discussion.md
+│   └── final_discussion.md
 │
 └── app/
-    └── app.py                       
-```
-
-### Step 1: Environment Setup
-
-Create and activate the conda environment:
-
-```bash
-conda env create -f environment.yml
-conda activate 575_project
-```
-
-Verify installation:
-
-```bash
-python -c "import rank_bm25; import sentence_transformers; import faiss; print('All good!')"
-```
-
-### Step 2: API Keys (optional)
-
->> reference above
-
-### Step 3: Download Data
-
-Downloads the All_Beauty category from the [Amazon Reviews 2023 dataset](https://amazon-reviews-2023.github.io/) and converts to Parquet format for efficient querying.
-
-```bash
-make data
-```
-
-This produces:
-
-```
-data/raw/meta_All_Beauty.jsonl       # 112,590 product records
-data/raw/All_Beauty.jsonl            # 701,528 review records
-data/processed/meta_All_Beauty.parquet
-data/processed/All_Beauty.parquet
-```
-
-### Step 4: Build Search Indexes
-
-Build both retrieval indexes:
-
-```bash
-make indexes    # BM25 (~10 seconds) + semantic (~20 minutes, run once)
-```
-
-Or build individually:
-
-```bash
-make bm25       # builds BM25 index (~10 seconds)
-make semantic   # builds FAISS index (~2-7 minutes)
-```
-
-```
-This produces:
-data/processed/bm25_index.pkl        # fitted BM25 index
-data/processed/corpus_metadata.pkl   # product metadata for display
-data/processed/faiss_index.faiss     # FAISS vector index
-data/processed/embeddings.npy        # raw embeddings (384-dim vectors)
-```
-
-### Step 5: Launch App
-
-```bash
-make app
+    └── app.py                        # Streamlit UI
 ```
 
 ---
@@ -200,70 +196,65 @@ make app
 ### Data Pipeline
 
 ```
-HuggingFace (raw data)
-↓  data_loader.py
-data/raw/.jsonl          (incremental write, never fully in RAM)
-↓  data_loader.py
-data/processed/.parquet  (columnar format, efficient querying)
-↓  utils.py
-Document corpus           (title + features + description + store + details)
+HuggingFace (McAuley-Lab/Amazon-Reviews-2023)
+↓  src/data_loader.py
+data/raw/*.jsonl             (incremental write, never fully in RAM)
+↓  src/data_loader.py
+data/processed/*.parquet     (columnar format, DuckDB queries)
+↓  src/utils.py
+Document corpus              (title + features + description + store + details)
 ↓
 BM25 index    +    FAISS index
+↓
+Hybrid retriever (RRF)
+↓
+RAG pipeline → Llama 3.3 70B (Groq) → Answer
 ```
 
 ### Document Construction
 
-Each product is indexed as a single text document combining:
+Each of the 112,590 products is indexed as a single text document combining:
 
 | Field | Why included |
 |---|---|
-| `title` | Most reliable field, always present (0% missing) |
-| `features` | Rich product attributes (missing in 84.6% — included when available) |
-| `description` | Longer context (missing in 83% — included when available) |
-| `store` | Brand names not always captured in details |
-| `details` | Skin type, material, brand, size |
+| `title` | Most reliable field, always present |
+| `features` | Rich product attributes |
+| `description` | Longer product context |
+| `store` | Brand names not always in details |
+| `details` | Skin type, material, size |
 | `price` | **Excluded** — 84.3% missing, adds noise |
 
 ### Retrieval Methods
 
-**BM25 (Keyword Search)**
+**BM25** scores documents by term frequency and inverse document frequency. Best for exact brand names and specific product types (e.g. *"CeraVe moisturizer"*).
 
-- Scores documents by term frequency and inverse document frequency
-- Best for: exact brand names, specific product types
-- Example: *"CeraVe moisturizer"* → finds CeraVe products reliably
+**Semantic search** encodes queries and documents as 384-dimensional vectors using `all-MiniLM-L6-v2` and retrieves nearest neighbours via FAISS. Best for descriptive or conceptual queries (e.g. *"something hydrating for dry skin"*).
 
-**Semantic Search**
+**Hybrid retrieval** combines both using Reciprocal Rank Fusion (RRF). Each candidate is scored as the sum of `1 / (rank + 60)` from each retriever, then re-ranked. This consistently outperforms either method alone on mixed query types.
 
-- Encodes text as 384-dimensional vectors using `all-MiniLM-L6-v2`
-- Finds products by meaning similarity using FAISS
-- Best for: descriptive queries, synonyms, conceptual searches
-- Example: *"something hydrating for dry skin"* → finds moisturizers 
-  even without exact word matches
+### RAG Pipeline
+
+1. Query → Hybrid retriever → top-5 products
+2. Product metadata + one review snippet per product → context block
+3. Context + query → prompt → Llama 3.3 70B via Groq API
+4. Answer returned and displayed with source citations
+
+### Web Search Tool
+
+When a query contains keywords related to pricing, availability, certifications, or recency (e.g. *"cruelty-free"*, *"where to buy"*, *"price"*), the pipeline optionally calls Tavily to augment the static product context with live web results. This is opt-in via a checkbox in the UI.
 
 ---
 
 ## Dataset
 
-We use the **All_Beauty** category from the 
-[Amazon Reviews 2023 dataset](https://amazon-reviews-2023.github.io/) 
-by McAuley Lab.
+**All_Beauty** category from the [Amazon Reviews 2023 dataset](https://amazon-reviews-2023.github.io/) by McAuley Lab, UC San Diego.
 
-| File | Records | Description |
-|---|---|---|
-| Metadata | 112,590 | Product titles, features, descriptions, prices |
-| Reviews | 701,528 | User ratings, review text, helpful votes |
+| File | Records |
+|---|---|
+| Product metadata | 112,590 |
+| Customer reviews | 701,528 |
 
-**Why All_Beauty?**
-
-- Manageable size — works on any laptop
-- Rich natural language queries are natural for beauty products
-- Good mix of keyword queries (brand names) and semantic queries 
-  (skin concerns, product effects)
-- Scales to the larger `Beauty_and_Personal_Care` category 
-  (1M+ products) with no code changes
-
-> See `results/milestone1_discussion.md` for full EDA findings 
-> and data quality analysis.
+**Why All_Beauty?** Manageable size, rich natural language queries, good mix of keyword (brand names) and semantic (skin concerns) queries. Scales to the larger `Beauty_and_Personal_Care` category (1M+ products) with no code changes.
 
 ---
 
@@ -271,36 +262,25 @@ by McAuley Lab.
 
 ### Key Design Decisions
 
-**Parquet + DuckDB over raw JSONL**  
-Raw JSONL files are read sequentially — loading 112K records into 
-pandas crashes on lower-end laptops. We convert to Parquet (columnar 
-format) and query with DuckDB, loading only the columns we need.
+**Parquet + DuckDB over raw JSONL** — raw JSONL requires sequential reads. Parquet with DuckDB loads only the columns needed, keeping memory bounded on lower-end machines.
 
-**Incremental processing**  
-Data is processed in chunks of 1000 records at a time. This keeps 
-memory usage bounded regardless of dataset size.
+**Incremental processing** — data is processed in chunks of 1,000 records. Memory usage is bounded regardless of dataset size.
 
-**Shared corpus metadata**  
-Both BM25 and semantic search use the same `corpus_metadata.pkl` 
-for displaying results. Both systems return integer indices — we 
-use those to look up product info from the shared metadata list.
+**Shared corpus metadata** — both BM25 and FAISS return integer indices. Both retrievers share a single `corpus_metadata.pkl` for result display, avoiding duplication.
 
-**Type-agnostic field handling**  
-Array fields (`features`, `description`) load as numpy arrays from 
-Parquet, not Python lists. We use `len()` checks instead of 
-`isinstance(x, list)` to handle this correctly.
+**embeddings.npy excluded from deployment** — FAISS stores vectors internally in `faiss_index.faiss`. The raw embeddings file (165MB) is useful for experimentation but not needed at runtime.
+
+**tokenized_corpus removed from BM25 pickle** — saving the tokenized corpus alongside the BM25 object inflated the index from 53MB to 97MB. At query time only `bm25.get_scores()` is called, which does not require the original corpus.
+
+**Review lookup dict over per-query parquet scans** — the original implementation ran a DuckDB parquet scan for each product in the context window. The app now builds a `asin → snippet` dict at startup, replacing repeated file I/O with O(1) dict lookups.
 
 ### Running Individual Components
 
 ```bash
-# Download and process data
-python src/data_loader.py
-
-# Build BM25 index
-python src/bm25.py
-
-# Build semantic search index  
-python src/semantic.py
+python src/data_loader.py   # download and convert data
+python src/bm25.py          # build BM25 index
+python src/semantic.py      # build FAISS index
+streamlit run app/app.py    # launch app
 ```
 
 ---
@@ -316,6 +296,5 @@ python src/semantic.py
 
 ## License
 
-This project is for educational purposes as part of UBC MDS DSCI 575.  
-Dataset: [Amazon Reviews 2023](https://amazon-reviews-2023.github.io/) 
-— McAuley Lab, UC San Diego.
+Educational use only — UBC MDS DSCI 575.  
+Dataset: [Amazon Reviews 2023](https://amazon-reviews-2023.github.io/) — McAuley Lab, UC San Diego.
