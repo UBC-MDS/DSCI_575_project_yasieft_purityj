@@ -304,7 +304,7 @@ with tab2:
 
         st.markdown("## 🧠 Generated Answer")
         if tool_used:
-            st.info("ℹ️ Web search was used to supplement Amazon reviews for this query.")
+            st.info("ℹ️ Web search was used to supplement Amazon product and review data for this query")
         st.success(answer)
 
         # Web sources

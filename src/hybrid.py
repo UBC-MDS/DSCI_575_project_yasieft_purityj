@@ -3,6 +3,11 @@
 # Purpose: Hybrid retriever (BM25 + Semantic via RRF) and
 #          hybrid RAG pipeline. Extends the base RAG pipeline
 #          in rag_pipeline.py with combined retrieval.
+#
+# Note: This file is kept as a standalone module to meet course
+#       requirements. In production, hybrid_retrieve() and
+#       hybrid_rag_pipeline() could be merged into rag_pipeline.py
+#       with mode="Hybrid" to eliminate duplication.
 # ─────────────────────────────────────────────────────────────
 from src.rag_pipeline import (
     semantic_retrieve,

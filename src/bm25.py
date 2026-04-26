@@ -97,7 +97,7 @@ def load_bm25_index(index_path=BM25_INDEX_PATH,
     if not index_path.exists():
         raise FileNotFoundError(
             f"BM25 index not found at {index_path}. "
-            f"Run build_bm25_index() first."
+            f"Run build_bm25_index() first by running `make bm25`"
         )
 
     # rb = read binary
@@ -128,7 +128,7 @@ def search_bm25(query, bm25, metadata, top_k=5):
     2. Get BM25 scores for every document 
     3. Return top_k results with metadata and scores
 
-    Returns a lust of dicts, each containing product info + score.
+    Returns a list of dicts, each containing product info + score.
     """
 
     # 1. Tokenize query using same function as corpus
