@@ -321,3 +321,4 @@ with tab2:
                 st.write(f"**Average Rating:** {doc.get('average_rating', 'N/A')} / 5")
                 st.write(f"**Number of Reviews:** {doc.get('rating_number', 'N/A')}")
                 st.write(f"**Store:** {doc.get('store', 'N/A')}")
+                st.write(f"**Price:** ${doc.get('price', 'N/A')}")
